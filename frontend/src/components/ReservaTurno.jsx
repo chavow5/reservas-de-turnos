@@ -4,10 +4,14 @@ import axios from 'axios'
 
 const generateAllowedHours = () => {
   const hours = []
-  for (let h = 15; h <= 23; h++) hours.push(String(h).padStart(2, '0') + ' hs')
-  hours.push('00', '01') // hasta 02:00 (excluye 02:00)
+  for (let h = 15; h <= 23; h++) {
+    hours.push(`${String(h).padStart(2, '0')}:00`)
+  }
+  hours.push('00:00', '01:00')
   return hours
 }
+
+
 const ALLOWED_HOURS = generateAllowedHours()
 
 const todayISO = () => {
@@ -30,10 +34,10 @@ const maxWeekISO = () => {
 }
 
 const isHoraValida = (hora) => {
-  if (!hora) return false
-  const [h] = hora.split(':').map(Number)
+  const h = Number(hora.split(':')[0])
   return h >= 15 || h < 2
 }
+
 
 const isFechaDentroDeSemana = (fechaIso) => {
   if (!fechaIso) return false
@@ -73,6 +77,7 @@ export default function ReservaTurno() {
     supabase
       .from('reservas')
       .select('*')
+      .eq('pagado', true)
       .order('fecha', { ascending: true })
       .then(({ data, error }) => {
         if (!mounted) return

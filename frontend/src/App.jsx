@@ -1,12 +1,15 @@
-
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import ReservaTurno from './components/ReservaTurno'
 import Admin from './pages/Admin'
+import Success from './pages/Success'
 
 export default function App() {
-  return (
-    <div className="min-h-screen bg-gray-100">
-      <ReservaTurno />
-      <Admin />
-    </div>
-  )
+    return (
+        <BrowserRouter>
+            <Routes>
+                <Route path="/" element={<><ReservaTurno /><Admin /></>} />
+                <Route path="/success" element={<Success />} />
+            </Routes>
+        </BrowserRouter>
+    )
 }

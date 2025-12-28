@@ -22,6 +22,11 @@ const supabase = createClient(
 // CREATE PREFERENCE
 app.post('/create-preference', async (req, res) => {
   try {
+    const { reservaId } = req.body
+    if (!reservaId) {
+      return res.status(400).json({ error: 'reservaId requerido' })
+    }
+
     const preference = new Preference(mpClient)
 
     const response = await preference.create({
@@ -33,13 +38,10 @@ app.post('/create-preference', async (req, res) => {
             unit_price: 5000
           }
         ],
-        metadata: {
-          reservaId: req.body.reservaId
-        },
+        metadata: { reservaId },
         back_urls: {
-          success: 'http://localhost:5173'
+          success: 'http://localhost:5173/success'
         },
-        auto_return: 'approved',
         notification_url: 'http://localhost:3000/webhook'
       }
     })
@@ -47,9 +49,11 @@ app.post('/create-preference', async (req, res) => {
     res.json({ init_point: response.init_point })
   } catch (error) {
     console.error('MP create-preference error:', error)
-    res.status(500).json({ error: 'Error Mercado Pago' })
+    res.status(500).json({ error: error.message })
   }
 })
+
+
 
 // WEBHOOK
 app.post('/webhook', async (req, res) => {
