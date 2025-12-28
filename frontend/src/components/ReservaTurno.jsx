@@ -4,8 +4,8 @@ import axios from 'axios'
 
 const generateAllowedHours = () => {
   const hours = []
-  for (let h = 15; h <= 23; h++) hours.push(String(h).padStart(2, '0') + ':00')
-  hours.push('00:00', '01:00') // hasta 02:00 (excluye 02:00)
+  for (let h = 15; h <= 23; h++) hours.push(String(h).padStart(2, '0') + ' hs')
+  hours.push('00', '01') // hasta 02:00 (excluye 02:00)
   return hours
 }
 const ALLOWED_HOURS = generateAllowedHours()
