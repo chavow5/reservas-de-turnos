@@ -35,7 +35,7 @@ app.post('/create-preference', async (req, res) => {
           {
             title: 'Reserva de turno',
             quantity: 1,
-            unit_price: 5000
+            unit_price: 100
           }
         ],
         metadata: { reservaId },
