@@ -109,16 +109,17 @@ export default function ReservaTurno() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+
     if (!form.nombre || !form.fecha || !form.hora) {
       return alert('Complete todos los campos')
     }
 
     if (!isFechaDentroDeSemana(form.fecha)) {
-      return alert('Solo puedes reservar hasta 1 semana adelante (incluye hoy)')
+      return alert('Solo puedes reservar hasta 1 semana adelante')
     }
 
     if (!isHoraValida(form.hora)) {
-      return alert('Horarios disponibles solo de 15:00 a 02:00 (por hora)')
+      return alert('Horarios disponibles solo de 15:00 a 02:00')
     }
 
     if (reservas.some(r => r.fecha === form.fecha && r.hora === form.hora)) {
@@ -127,31 +128,24 @@ export default function ReservaTurno() {
 
     try {
       setLoading(true)
-      const { data, error } = await supabase
-        .from('reservas')
-        .insert([form])
-        .select()
-        .single()
-
-      if (error) {
-        console.error('Supabase insert error:', error)
-        alert('Error al reservar')
-        setLoading(false)
-        return
-      }
 
       const res = await axios.post('http://localhost:3000/create-preference', {
-        reservaId: data.id
+        nombre: form.nombre,
+        fecha: form.fecha,
+        hora: form.hora
       })
 
+
       window.location.href = res.data.init_point
+
     } catch (err) {
       console.error('Reserva error:', err)
-      alert('Ocurrió un error. Intente nuevamente.')
+      alert('Error al iniciar pago')
     } finally {
       setLoading(false)
     }
   }
+
 
   return (
     <div className="max-w-2xl mx-auto mt-10 px-4">

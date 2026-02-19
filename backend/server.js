@@ -8,24 +8,35 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
-// Mercado Pago client
+console.log("🔥 SERVER NUEVO ACTIVO 🔥")
+console.log("MP TOKEN:", process.env.MP_ACCESS_TOKEN)
+
+// Mercado Pago
 const mpClient = new MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN
 })
 
-// Supabase (service role)
+// Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE
 )
 
+
+// ============================
 // CREATE PREFERENCE
+// ============================
+
 app.post('/create-preference', async (req, res) => {
   try {
-    const { reservaId } = req.body
-    if (!reservaId) {
-      return res.status(400).json({ error: 'reservaId requerido' })
+
+    const { nombre, fecha, hora } = req.body
+
+    if (!nombre || !fecha || !hora) {
+      return res.status(400).json({ error: 'Datos incompletos' })
     }
+
+    console.log("BODY:", req.body)
 
     const preference = new Preference(mpClient)
 
@@ -33,51 +44,88 @@ app.post('/create-preference', async (req, res) => {
       body: {
         items: [
           {
-            title: 'Reserva de turno',
+            title: `Reserva ${fecha} ${hora}`,
             quantity: 1,
-            unit_price: 100
+            unit_price: 100,
+            currency_id: "ARS"
           }
         ],
-        metadata: { reservaId },
-        back_urls: {
-          success: 'http://localhost:5173/success'
+        metadata: {
+          nombre,
+          fecha,
+          hora
         },
-        notification_url: 'http://localhost:3000/webhook'
+        back_urls: {
+          success: 'https://totable-nonfiscal-bernadette.ngrok-free.dev/success',
+          failure: 'https://totable-nonfiscal-bernadette.ngrok-free.dev',
+          pending: 'https://totable-nonfiscal-bernadette.ngrok-free.dev'
+        },
+        auto_return: 'approved',
+        notification_url: 'https://totable-nonfiscal-bernadette.ngrok-free.dev/webhook'
       }
     })
 
+    console.log("✅ Preference creada")
+
     res.json({ init_point: response.init_point })
+
   } catch (error) {
-    console.error('MP create-preference error:', error)
-    res.status(500).json({ error: error.message })
+    console.error("❌ ERROR COMPLETO:", error)
+    res.status(500).json({ message: error.message })
   }
 })
 
 
-
+// ============================
 // WEBHOOK
+// ============================
+
 app.post('/webhook', async (req, res) => {
   try {
-    const paymentId = req.body?.data?.id
+    console.log('📩 Webhook recibido:', req.body)
+
+    if (req.body.topic !== 'payment') {
+      return res.sendStatus(200)
+    }
+    const paymentId = req.body?.resource
     if (!paymentId) return res.sendStatus(200)
 
     const payment = new Payment(mpClient)
     const mpPayment = await payment.get({ id: paymentId })
 
+    console.log('💰 Estado del pago:', mpPayment.status)
+
     if (mpPayment.status === 'approved') {
-      await supabase
+
+      const { nombre, fecha, hora } = mpPayment.metadata
+
+      const { data: existing } = await supabase
         .from('reservas')
-        .update({ pagado: true })
-        .eq('id', mpPayment.metadata.reservaId)
+        .select('*')
+        .eq('fecha', fecha)
+        .eq('hora', hora)
+
+      if (!existing || existing.length === 0) {
+        await supabase.from('reservas').insert([
+          {
+            nombre,
+            fecha,
+            hora,
+            pagado: true
+          }
+        ])
+
+        console.log('✅ Reserva creada correctamente')
+      }
     }
 
     res.sendStatus(200)
+
   } catch (error) {
     console.error('Webhook error:', error)
     res.sendStatus(500)
   }
 })
-
 app.listen(3000, () =>
-  console.log('✅ Backend Mercado Pago activo')
+  console.log('🚀 Backend Mercado Pago activo en puerto 3000')
 )
