@@ -129,7 +129,7 @@ export default function ReservaTurno() {
     try {
       setLoading(true)
 
-      const res = await axios.post('http://localhost:3000/create-preference', {
+      const res = await axios.post('https://reservas-de-turnos.onrender.com/create-preference', {
         nombre: form.nombre,
         fecha: form.fecha,
         hora: form.hora

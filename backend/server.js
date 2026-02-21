@@ -56,12 +56,12 @@ app.post('/create-preference', async (req, res) => {
           hora
         },
         back_urls: {
-          success: 'https://totable-nonfiscal-bernadette.ngrok-free.dev/success',
-          failure: 'https://totable-nonfiscal-bernadette.ngrok-free.dev',
-          pending: 'https://totable-nonfiscal-bernadette.ngrok-free.dev'
+          success: 'https://reservas-de-turnos.onrender.com/success',
+          failure: 'https://reservas-de-turnos.onrender.com',
+          pending: 'https://reservas-de-turnos.onrender.com'
         },
         auto_return: 'approved',
-        notification_url: 'https://totable-nonfiscal-bernadette.ngrok-free.dev/webhook'
+        notification_url: 'https://reservas-de-turnos.onrender.com/webhook'
       }
     })
 
