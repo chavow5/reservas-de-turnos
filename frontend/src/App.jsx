@@ -4,6 +4,7 @@ import AdminLogin from './pages/AdminLogin'
 import Dashboard from './pages/Dashboard'
 import Success from './pages/Success'
 import Layout from './components/Layout'
+import Sorteo from './pages/Sorteo'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
           <Route path="/success" element={<Success />} />
           <Route path="/admin" element={<AdminLogin />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/sorteo" element={<Sorteo />} />
         </Routes>
       </Layout>
     </BrowserRouter>

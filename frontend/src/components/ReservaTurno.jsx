@@ -41,29 +41,51 @@ const isHoraValida = (hora) => {
 
 const isFechaDentroDeSemana = (fechaIso) => {
   if (!fechaIso) return false
-  const selected = new Date(fechaIso)
+
+  const [year, month, day] = fechaIso.split('-').map(Number)
+  const selected = new Date(year, month - 1, day)
   selected.setHours(0, 0, 0, 0)
+
   const today = new Date()
   today.setHours(0, 0, 0, 0)
+
   const max = new Date()
   max.setHours(0, 0, 0, 0)
   max.setDate(max.getDate() + 7)
+
   return selected >= today && selected <= max
 }
+const weekDays = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB']
 
-// Nuevo: genera los 8 días (hoy +7) para mostrar calendario abierto
-const getNextWeekDays = () => {
+// Genera los días del mes para un mes base (por defecto mes actual)
+const getCalendarDays = (baseDate = new Date()) => {
+  const year = baseDate.getFullYear()
+  const month = baseDate.getMonth()
+
+  const firstDay = new Date(year, month, 1)
+  const lastDay = new Date(year, month + 1, 0)
+
   const days = []
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  for (let i = 0; i <= 7; i++) {
-    const dt = new Date(d)
-    dt.setDate(d.getDate() + i)
-    const iso = dt.toISOString().slice(0, 10)
-    const dayName = dt.toLocaleDateString(undefined, { weekday: 'short' }) // ej: Lun
-    const label = dt.toLocaleDateString(undefined, { day: '2-digit', month: 'short' }) // ej: 27 dic
-    days.push({ iso, dayName, label })
+  const startDay = firstDay.getDay() // 0 = domingo
+
+  // Espacios vacíos antes del día 1
+  for (let i = 0; i < startDay; i++) {
+    days.push(null)
   }
+
+  // Días reales del mes
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const date = new Date(year, month, d)
+    const yyyy = date.getFullYear()
+    const mm = String(date.getMonth() + 1).padStart(2, '0')
+    const dd = String(date.getDate()).padStart(2, '0')
+    const iso = `${yyyy}-${mm}-${dd}`
+    days.push({
+      day: d,
+      iso
+    })
+  }
+
   return days
 }
 
@@ -71,6 +93,7 @@ export default function ReservaTurno() {
   const [reservas, setReservas] = useState([])
   const [form, setForm] = useState({ nombre: '', fecha: '', hora: '' })
   const [loading, setLoading] = useState(false)
+  const [currentMonth, setCurrentMonth] = useState(new Date())
 
   useEffect(() => {
     let mounted = true
@@ -91,7 +114,21 @@ export default function ReservaTurno() {
     return () => { mounted = false }
   }, [])
 
-  const days = getNextWeekDays()
+  const days = getCalendarDays(currentMonth)
+
+  const goPrevMonth = () => {
+    setCurrentMonth(prev => {
+      const d = new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
+      return d
+    })
+  }
+
+  const goNextMonth = () => {
+    setCurrentMonth(prev => {
+      const d = new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
+      return d
+    })
+  }
 
   const handleChange = (key) => (e) => {
     setForm(prev => ({ ...prev, [key]: e.target.value }))
@@ -118,8 +155,8 @@ export default function ReservaTurno() {
       return alert('Solo puedes reservar hasta 1 semana adelante')
     }
 
-    if (!isHoraValida(form.hora)) {
-      return alert('Horarios disponibles solo de 15:00 a 02:00')
+    if (isHoraInvalida(form.fecha, form.hora)) {
+      return alert('Debes reservar con al menos 2 horas de anticipación')
     }
 
     if (reservas.some(r => r.fecha === form.fecha && r.hora === form.hora)) {
@@ -146,6 +183,42 @@ export default function ReservaTurno() {
     }
   }
 
+  const buildSelectionDate = (fecha, hora) => {
+  const [year, month, day] = fecha.split('-').map(Number)
+  const [hh] = hora.split(':')
+  const hour = Number(hh)
+
+  const d = new Date(year, month - 1, day, hour, 0, 0, 0)
+
+  return d
+}
+
+  const isHoraInvalida = (fecha, hora) => {
+    if (!fecha) return false
+
+    const ahora = new Date()
+    const seleccion = buildSelectionDate(fecha, hora)
+    const diff = seleccion - ahora
+
+    return diff <= 1 * 60 * 60 * 1000
+  }
+
+  const getTiempoRestante = (fecha, hora) => {
+    if (!fecha) return null
+
+    const ahora = new Date()
+    const seleccion = buildSelectionDate(fecha, hora)
+
+    const diff = seleccion - ahora
+
+    if (diff <= 0) return 'Horario vencido'
+
+    const horas = Math.floor(diff / (1000 * 60 * 60))
+    const minutos = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+
+    return `Faltan ${horas}h ${minutos}m`
+  }
+
 
   return (
     <div className="max-w-2xl mx-auto mt-10 px-4">
@@ -163,29 +236,47 @@ export default function ReservaTurno() {
 
         <label className="block text-sm font-medium text-gray-600 mb-2">Fecha (seleccioná con un click)</label>
 
-        {/* Calendario abierto: lista horizontal de días (hoy +7) */}
-        <div className="mb-3">
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {days.map(d => {
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+          {/* Header rojo */}
+          <div className="bg-red-600 text-white p-3 flex items-center justify-between">
+            <button type="button" onClick={goPrevMonth} className="px-3 py-1 hover:bg-red-500 rounded">◀</button>
+            <h2 className="text-xl font-bold text-center flex-1">
+              {currentMonth.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
+            </h2>
+            <button type="button" onClick={goNextMonth} className="px-3 py-1 hover:bg-red-500 rounded">▶</button>
+          </div>
+
+          {/* Días semana */}
+          <div className="grid grid-cols-7 text-center bg-gray-100 py-2 text-sm font-semibold">
+            {weekDays.map(d => (
+              <div key={d}>{d}</div>
+            ))}
+          </div>
+
+          {/* Días del mes */}
+          <div className="grid grid-cols-7 text-center">
+            {days.map((d, index) => {
+              if (!d) return <div key={index} className="p-3"></div>
+
               const isSelected = form.fecha === d.iso
+              const dentroSemana = isFechaDentroDeSemana(d.iso)
+
               return (
                 <button
                   key={d.iso}
                   type="button"
+                  disabled={!dentroSemana}
                   onClick={() => selectDay(d.iso)}
-                  aria-pressed={isSelected}
-                  className={`min-w-[90px] flex-shrink-0 border rounded p-3 text-center
-                    ${isSelected ? 'bg-blue-600 text-white' : 'bg-white text-gray-800'}
-                    ${isFechaDentroDeSemana(d.iso) ? '' : 'opacity-40 cursor-not-allowed'}`}
-                  disabled={!isFechaDentroDeSemana(d.iso)}
+                  className={`p-3 border
+                    ${isSelected ? 'bg-blue-600 text-white' : ''}
+                    ${!dentroSemana ? 'opacity-30 cursor-not-allowed' : 'hover:bg-blue-100'}
+                  `}
                 >
-                  <div className="text-xs text-gray-300">{d.dayName}</div>
-                  <div className="text-sm font-medium mt-1">{d.label}</div>
+                  {d.day}
                 </button>
               )
             })}
           </div>
-          <p className="text-xs text-gray-500 mt-2">Puedes reservar hasta {maxWeekISO()}</p>
         </div>
 
         <label className="block text-sm font-medium text-gray-600 mb-2">Hora (click para seleccionar)</label>
@@ -194,15 +285,22 @@ export default function ReservaTurno() {
         <div className="grid grid-cols-4 gap-2 mb-4">
           {ALLOWED_HOURS.map(h => {
             const isSelected = form.hora === h
-            // si querés deshabilitar horas pasadas del día actual, se puede añadir lógica extra aquí
+            const horaOcupada = reservas.some(r => r.fecha === form.fecha && r.hora === h)
+            const horaInvalida = isHoraInvalida(form.fecha, h)
+
+            const disabled = horaOcupada || horaInvalida
+
             return (
               <button
                 key={h}
                 type="button"
                 onClick={() => selectHour(h)}
-                className={`py-2 rounded text-sm font-medium
-                  ${isSelected ? 'bg-blue-600 text-white' : 'bg-white text-gray-800'}
-                  border hover:bg-blue-50`}
+                disabled={disabled}
+                className={`
+                            py-2 rounded text-sm font-medium border transition w-full
+                            ${isSelected ? 'bg-blue-600 text-white' : 'bg-white'}
+                            ${disabled ? 'opacity-30 cursor-not-allowed' : 'hover:bg-blue-50'}
+                          `}
               >
                 {h}
               </button>

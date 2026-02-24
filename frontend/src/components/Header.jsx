@@ -11,14 +11,31 @@ export default function Header() {
           ⚽ Reservas Fútbol
         </Link>
 
-        <nav className="flex gap-4 text-sm">
-          {location.pathname !== '/admin' && location.pathname !== '/dashboard' && (
-            <Link to="/admin" className="hover:text-gray-300">
+        <nav className="flex gap-6 text-sm items-center">
+
+          {/* Sorteo visible siempre */}
+          <Link
+            to="/sorteo"
+            className={`hover:text-gray-300 ${
+              location.pathname === '/sorteo' ? 'underline' : ''
+            }`}
+          >
+            Sorteo
+          </Link>
+
+          {/* Admin solo si no estás en admin */}
+          {location.pathname !== '/admin' && (
+            <Link
+              to="/admin"
+              className={`hover:text-gray-300 ${
+                location.pathname === '/admin' ? 'underline' : ''
+              }`}
+            >
               Admin
             </Link>
           )}
-        </nav>
 
+        </nav>
       </div>
     </header>
   )
