@@ -22,7 +22,9 @@ export default function Dashboard() {
       .select('*')
       .order('fecha', { ascending: true })
 
-    setReservas(data || [])
+    // normalizar para versiones anteriores que no tenían cancha
+    const normalized = (data || []).map(r => ({ ...r, cancha: r.cancha ?? '1' }))
+    setReservas(normalized)
   }
 
   const eliminarReserva = async (id) => {
@@ -48,6 +50,7 @@ export default function Dashboard() {
         <thead>
           <tr className="bg-gray-200">
             <th>Nombre</th>
+            <th>Cancha</th>
             <th>Fecha</th>
             <th>Hora</th>
             <th>Pagado</th>
@@ -58,6 +61,7 @@ export default function Dashboard() {
           {reservas.map(r => (
             <tr key={r.id} className="text-center border-t">
               <td>{r.nombre}</td>
+              <td>{r.cancha}</td>
               <td>{r.fecha}</td>
               <td>{r.hora}</td>
               <td>{r.pagado ? '✔️' : '❌'}</td>

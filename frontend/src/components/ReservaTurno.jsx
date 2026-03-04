@@ -90,8 +90,10 @@ const getCalendarDays = (baseDate = new Date()) => {
 }
 
 export default function ReservaTurno() {
+  const CANCHAS = ['1', '2'] // adicionar más en el futuro
+
   const [reservas, setReservas] = useState([])
-  const [form, setForm] = useState({ nombre: '', fecha: '', hora: '' })
+  const [form, setForm] = useState({ nombre: '', cancha: '1', fecha: '', hora: '' })
   const [loading, setLoading] = useState(false)
   const [currentMonth, setCurrentMonth] = useState(new Date())
 
@@ -108,7 +110,9 @@ export default function ReservaTurno() {
           console.error('Supabase fetch error:', error)
           setReservas([])
         } else {
-          setReservas(data || [])
+          // normalizamos por si hay registros antiguos sin campo cancha
+          const normalized = (data || []).map(r => ({ ...r, cancha: r.cancha ?? '1' }))
+          setReservas(normalized)
         }
       })
     return () => { mounted = false }
@@ -131,7 +135,19 @@ export default function ReservaTurno() {
   }
 
   const handleChange = (key) => (e) => {
-    setForm(prev => ({ ...prev, [key]: e.target.value }))
+    setForm(prev => {
+      const updated = { ...prev, [key]: e.target.value }
+      if (key === 'cancha') {
+        // al cambiar de cancha descartamos fecha/hora previas
+        updated.fecha = ''
+        updated.hora = ''
+      }
+      return updated
+    })
+  }
+
+  const selectCancha = (c) => {
+    setForm(prev => ({ ...prev, cancha: c, fecha: '', hora: '' }))
   }
 
   // Selección mediante botones (calendar abierto)
@@ -159,7 +175,7 @@ export default function ReservaTurno() {
       return alert('Debes reservar con al menos 2 horas de anticipación')
     }
 
-    if (reservas.some(r => r.fecha === form.fecha && r.hora === form.hora)) {
+    if (reservas.some(r => r.fecha === form.fecha && r.hora === form.hora && r.cancha === form.cancha)) {
       return alert('Horario ocupado')
     }
 
@@ -168,6 +184,7 @@ export default function ReservaTurno() {
 
       const res = await axios.post('https://reservas-de-turnos.onrender.com/create-preference', {
         nombre: form.nombre,
+        cancha: form.cancha,
         fecha: form.fecha,
         hora: form.hora
       })
@@ -234,6 +251,28 @@ export default function ReservaTurno() {
           required
         />
 
+        {/* selector de cancha arriba para evitar quiebres en layout */}
+        <div className="mb-4">
+          <div className="block text-sm font-medium text-gray-600 mb-1">Cancha</div>
+          <div className="flex gap-2">
+            {CANCHAS.map(c => {
+              const selected = form.cancha === c
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => selectCancha(c)}
+                  className={`px-3 py-1 rounded border font-medium transition
+                    ${selected ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-100'}
+                  `}
+                >
+                  Cancha {c}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         <label className="block text-sm font-medium text-gray-600 mb-2">Fecha (seleccioná con un click)</label>
 
         <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
@@ -254,6 +293,11 @@ export default function ReservaTurno() {
           </div>
 
           {/* Días del mes */}
+          <div className="text-xs flex justify-center gap-4 py-2">
+            <span className="px-2 py-1 bg-green-200 rounded">Disponible</span>
+            <span className="px-2 py-1 bg-red-600 text-white rounded">Completo</span>
+            <span className="px-2 py-1 bg-blue-600 text-white rounded">Seleccionado</span>
+          </div>
           <div className="grid grid-cols-7 text-center">
             {days.map((d, index) => {
               if (!d) return <div key={index} className="p-3"></div>
@@ -261,15 +305,20 @@ export default function ReservaTurno() {
               const isSelected = form.fecha === d.iso
               const dentroSemana = isFechaDentroDeSemana(d.iso)
 
+              // revisamos si para la cancha seleccionada el día está completamente ocupado
+              const reservasDia = reservas.filter(r => r.fecha === d.iso && r.cancha === form.cancha)
+              const horasOcupadas = new Set(reservasDia.map(r => r.hora))
+              const isFullDay = horasOcupadas.size >= ALLOWED_HOURS.length
+
               return (
                 <button
                   key={d.iso}
                   type="button"
-                  disabled={!dentroSemana}
+                  disabled={!dentroSemana || isFullDay}
                   onClick={() => selectDay(d.iso)}
                   className={`p-3 border
                     ${isSelected ? 'bg-blue-600 text-white' : ''}
-                    ${!dentroSemana ? 'opacity-30 cursor-not-allowed' : 'hover:bg-blue-100'}
+                    ${!dentroSemana ? 'opacity-30 cursor-not-allowed' : isFullDay ? 'bg-red-600 text-white' : 'bg-green-200 hover:bg-green-300'}
                   `}
                 >
                   {d.day}
@@ -285,7 +334,7 @@ export default function ReservaTurno() {
         <div className="grid grid-cols-4 gap-2 mb-4">
           {ALLOWED_HOURS.map(h => {
             const isSelected = form.hora === h
-            const horaOcupada = reservas.some(r => r.fecha === form.fecha && r.hora === h)
+            const horaOcupada = reservas.some(r => r.fecha === form.fecha && r.hora === h && r.cancha === form.cancha)
             const horaInvalida = isHoraInvalida(form.fecha, h)
 
             const disabled = horaOcupada || horaInvalida
@@ -298,8 +347,10 @@ export default function ReservaTurno() {
                 disabled={disabled}
                 className={`
                             py-2 rounded text-sm font-medium border transition w-full
-                            ${isSelected ? 'bg-blue-600 text-white' : 'bg-white'}
-                            ${disabled ? 'opacity-30 cursor-not-allowed' : 'hover:bg-blue-50'}
+                            ${isSelected ? 'bg-blue-600 text-white' : ''}
+                            ${horaOcupada ? 'bg-red-500 text-white' : ''}
+                            ${disabled && !horaOcupada ? 'opacity-30 cursor-not-allowed' : ''}
+                            ${!disabled ? 'bg-white hover:bg-blue-50' : ''}
                           `}
               >
                 {h}
@@ -329,7 +380,9 @@ export default function ReservaTurno() {
               <li key={r.id} className="flex items-center justify-between text-sm text-gray-700 p-2 border rounded">
                 <div>
                   <div className="font-medium text-gray-800">Reservado</div>
-                  <div className="text-xs text-gray-500">{r.fecha} · {r.hora}</div>
+                  <div className="text-xs text-gray-500">
+                    Cancha {r.cancha} – {r.fecha} · {r.hora}
+                  </div>
                 </div>
                 <div className="text-xs text-gray-400">ID {r.id}</div>
               </li>

@@ -30,7 +30,8 @@ const supabase = createClient(
 app.post('/create-preference', async (req, res) => {
   try {
 
-    const { nombre, fecha, hora } = req.body
+    const { nombre, fecha, hora, cancha } = req.body
+    const canchaFinal = cancha || '1'
 
     if (!nombre || !fecha || !hora) {
       return res.status(400).json({ error: 'Datos incompletos' })
@@ -44,7 +45,7 @@ app.post('/create-preference', async (req, res) => {
       body: {
         items: [
           {
-            title: `Reserva ${fecha} ${hora}`,
+            title: `Reserva cancha ${canchaFinal} ${fecha} ${hora}`,
             quantity: 1,
             unit_price: 100,
             currency_id: "ARS"
@@ -52,6 +53,7 @@ app.post('/create-preference', async (req, res) => {
         ],
         metadata: {
           nombre,
+          cancha: canchaFinal,
           fecha,
           hora
         },
@@ -66,6 +68,7 @@ app.post('/create-preference', async (req, res) => {
     })
 
     console.log("✅ Preference creada")
+    console.log("INIT POINT:", response.init_point)
 
     res.json({ init_point: response.init_point })
 
@@ -97,13 +100,15 @@ app.post('/webhook', async (req, res) => {
 
     if (mpPayment.status === 'approved') {
 
-      const { nombre, fecha, hora } = mpPayment.metadata
+      const { nombre, fecha, hora, cancha } = mpPayment.metadata
+      const canchaFinal = cancha || '1'
 
       const { data: existing } = await supabase
         .from('reservas')
         .select('*')
         .eq('fecha', fecha)
         .eq('hora', hora)
+        .eq('cancha', canchaFinal)
 
       if (!existing || existing.length === 0) {
         await supabase.from('reservas').insert([
@@ -111,6 +116,7 @@ app.post('/webhook', async (req, res) => {
             nombre,
             fecha,
             hora,
+            cancha: canchaFinal,
             pagado: true
           }
         ])
@@ -120,6 +126,7 @@ app.post('/webhook', async (req, res) => {
     }
 
     res.sendStatus(200)
+    console.log("INIT POINT:", response.init_point)
 
   } catch (error) {
     console.error('Webhook error:', error)
@@ -129,3 +136,4 @@ app.post('/webhook', async (req, res) => {
 app.listen(3000, () =>
   console.log('🚀 Backend Mercado Pago activo en puerto 3000')
 )
+
