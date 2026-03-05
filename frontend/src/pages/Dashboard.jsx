@@ -9,6 +9,17 @@ export default function Dashboard() {
   const [filtroFecha, setFiltroFecha] = useState("")
   const navigate = useNavigate()
 
+  const formatearTurno = (fecha, hora) => {
+
+    const date = new Date(fecha)
+
+    const dia = date.toLocaleDateString("es-AR", {
+      weekday: "long"
+    })
+
+    return `${dia} ${hora}`
+
+  }
   useEffect(() => {
 
     const isAuth = localStorage.getItem('adminAuth')
@@ -115,121 +126,120 @@ export default function Dashboard() {
 
   return (
 
-  <div className="p-6">
+    <div className="p-6">
 
-    <div className="flex justify-between mb-6">
+      <div className="flex justify-between mb-6">
 
-      <h1 className="text-2xl font-bold">
-        Dashboard Admin
-      </h1>
+        <h1 className="text-2xl font-bold">
+          Dashboard Admin
+        </h1>
 
-      <button
-        onClick={logout}
-        className="bg-red-500 text-white px-4 py-2 rounded"
-      >
-        Cerrar sesión
-      </button>
+        <button
+          onClick={logout}
+          className="bg-red-500 text-white px-4 py-2 rounded"
+        >
+          Cerrar sesión
+        </button>
 
-    </div>
-
-    {/* RESUMEN */}
-
-    <div className="grid grid-cols-4 gap-4 mb-6">
-
-      <div className="bg-white shadow rounded p-4 text-center">
-        <p className="text-gray-500">Turnos hoy</p>
-        <p className="text-3xl font-bold">{reservasHoy.length}</p>
       </div>
 
-      <div className="bg-white shadow rounded p-4 text-center">
-        <p className="text-gray-500">Cancha 1</p>
-        <p className="text-3xl font-bold">{cancha1}</p>
+      {/* RESUMEN */}
+
+      <div className="grid grid-cols-4 gap-4 mb-6">
+
+        <div className="bg-white shadow rounded p-4 text-center">
+          <p className="text-gray-500">Turnos hoy</p>
+          <p className="text-3xl font-bold">{reservasHoy.length}</p>
+        </div>
+
+        <div className="bg-white shadow rounded p-4 text-center">
+          <p className="text-gray-500">Cancha 1</p>
+          <p className="text-3xl font-bold">{cancha1}</p>
+        </div>
+
+        <div className="bg-white shadow rounded p-4 text-center">
+          <p className="text-gray-500">Cancha 2</p>
+          <p className="text-3xl font-bold">{cancha2}</p>
+        </div>
+
+        <div className="bg-white shadow rounded p-4 text-center">
+          <p className="text-gray-500">Total reservas</p>
+          <p className="text-3xl font-bold">{reservas.length}</p>
+        </div>
+
       </div>
 
-      <div className="bg-white shadow rounded p-4 text-center">
-        <p className="text-gray-500">Cancha 2</p>
-        <p className="text-3xl font-bold">{cancha2}</p>
+      {/* BOTONES */}
+
+      <div className="flex gap-3 mb-6">
+
+        <button
+          onClick={() => copiar(reservasHoy, "Turnos de HOY")}
+          className="bg-green-600 text-white px-4 py-2 rounded"
+        >
+          Copiar hoy
+        </button>
+
+        <button
+          onClick={() => copiar(reservasSemana, "Turnos de la SEMANA")}
+          className="bg-blue-600 text-white px-4 py-2 rounded"
+        >
+          Copiar semana
+        </button>
+
       </div>
 
-      <div className="bg-white shadow rounded p-4 text-center">
-        <p className="text-gray-500">Total reservas</p>
-        <p className="text-3xl font-bold">{reservas.length}</p>
+      {/* FILTRO */}
+
+      <div className="mb-4">
+
+        <input
+          type="date"
+          value={filtroFecha}
+          onChange={(e) => setFiltroFecha(e.target.value)}
+          className="border p-2 rounded"
+        />
+
       </div>
 
-    </div>
+      {/* TABLA SEMANA / FILTRADA */}
 
-    {/* BOTONES */}
+      <table className="w-full border">
 
-    <div className="flex gap-3 mb-6">
+        <thead>
 
-      <button
-        onClick={() => copiar(reservasHoy, "Turnos de HOY")}
-        className="bg-green-600 text-white px-4 py-2 rounded"
-      >
-        Copiar hoy
-      </button>
+          <tr className="bg-gray-200">
 
-      <button
-        onClick={() => copiar(reservasSemana, "Turnos de la SEMANA")}
-        className="bg-blue-600 text-white px-4 py-2 rounded"
-      >
-        Copiar semana
-      </button>
+            <th>Nombre</th>
+            <th>Cancha</th>
+            <th>turno</th>
+            <th>Pagado</th>
+            <th>Acciones</th>
 
-    </div>
+          </tr>
 
-    {/* FILTRO */}
+        </thead>
 
-    <div className="mb-4">
+        <tbody>
 
-      <input
-        type="date"
-        value={filtroFecha}
-        onChange={(e) => setFiltroFecha(e.target.value)}
-        className="border p-2 rounded"
-      />
+          {reservasFiltradas.map(r => (
 
-    </div>
+            <tr key={r.id} className="text-center border-t">
 
-    {/* TABLA SEMANA / FILTRADA */}
-
-    <table className="w-full border">
-
-      <thead>
-
-        <tr className="bg-gray-200">
-
-          <th>Nombre</th>
-          <th>Cancha</th>
-          <th>Fecha</th>
-          <th>Hora</th>
-          <th>Pagado</th>
-          <th>Acciones</th>
-
-        </tr>
-
-      </thead>
-
-      <tbody>
-
-        {reservasFiltradas.map(r => (
-
-          <tr key={r.id} className="text-center border-t">
-
-            <td>
-              {editando?.id === r.id
-                ? <input
+              <td>
+                {editando?.id === r.id
+                  ? <input
                     value={editando.nombre}
                     onChange={(e) =>
                       setEditando({ ...editando, nombre: e.target.value })
                     }
                   />
-                : r.nombre}
-            </td>
+                  : r.nombre}
+              </td>
 
-            <td>
-              {editando?.id === r.id
-                ? <select
+              <td>
+                {editando?.id === r.id
+                  ? <select
                     value={editando.cancha}
                     onChange={(e) =>
                       setEditando({ ...editando, cancha: e.target.value })
@@ -238,103 +248,104 @@ export default function Dashboard() {
                     <option>1</option>
                     <option>2</option>
                   </select>
-                : r.cancha}
-            </td>
+                  : r.cancha}
+              </td>
 
-            <td>{r.fecha}</td>
+              <td className="capitalize">
+                {formatearTurno(r.fecha, r.hora)}
+              </td>
 
-            <td>
-              {editando?.id === r.id
-                ? <input
+              <td>
+                {editando?.id === r.id
+                  ? <input
                     value={editando.hora}
                     onChange={(e) =>
                       setEditando({ ...editando, hora: e.target.value })
                     }
                   />
-                : r.hora}
-            </td>
+                  : r.hora}
+              </td>
 
-            <td>{r.pagado ? "✔️" : "❌"}</td>
+              <td>{r.pagado ? "✔️" : "❌"}</td>
 
-            <td className="flex justify-center gap-2">
+              <td className="flex justify-center gap-2">
 
-              {editando?.id === r.id ? (
+                {editando?.id === r.id ? (
+
+                  <button
+                    onClick={guardarEdicion}
+                    className="bg-green-500 text-white px-2 py-1 rounded"
+                  >
+                    Guardar
+                  </button>
+
+                ) : (
+
+                  <button
+                    onClick={() => setEditando(r)}
+                    className="bg-yellow-500 text-white px-2 py-1 rounded"
+                  >
+                    Editar
+                  </button>
+
+                )}
 
                 <button
-                  onClick={guardarEdicion}
-                  className="bg-green-500 text-white px-2 py-1 rounded"
+                  onClick={() => eliminarReserva(r.id)}
+                  className="bg-red-500 text-white px-2 py-1 rounded"
                 >
-                  Guardar
+                  Eliminar
                 </button>
 
-              ) : (
+              </td>
 
-                <button
-                  onClick={() => setEditando(r)}
-                  className="bg-yellow-500 text-white px-2 py-1 rounded"
-                >
-                  Editar
-                </button>
+            </tr>
 
-              )}
+          ))}
 
-              <button
-                onClick={() => eliminarReserva(r.id)}
-                className="bg-red-500 text-white px-2 py-1 rounded"
-              >
-                Eliminar
-              </button>
+        </tbody>
 
-            </td>
+      </table>
 
+
+      {/* HISTORIAL */}
+
+      <h2 className="text-xl font-bold mt-10 mb-4">
+        Historial de reservas
+      </h2>
+
+      <table className="w-full border">
+
+        <thead>
+          <tr className="bg-gray-200">
+            <th>Nombre</th>
+            <th>Cancha</th>
+            <th>Turno</th>
+            <th>Pagado</th>
           </tr>
+        </thead>
 
-        ))}
+        <tbody>
 
-      </tbody>
+          {reservasPasadas.map(r => (
 
-    </table>
+            <tr key={r.id} className="text-center border-t text-gray-500">
 
+              <td>{r.nombre}</td>
+              <td>{r.cancha}</td>
+              <td>{r.fecha}</td>
+              <td>{r.hora}</td>
+              <td>{r.pagado ? "✔️" : "❌"}</td>
 
-    {/* HISTORIAL */}
+            </tr>
 
-    <h2 className="text-xl font-bold mt-10 mb-4">
-      Historial de reservas
-    </h2>
+          ))}
 
-    <table className="w-full border">
+        </tbody>
 
-      <thead>
-        <tr className="bg-gray-200">
-          <th>Nombre</th>
-          <th>Cancha</th>
-          <th>Fecha</th>
-          <th>Hora</th>
-          <th>Pagado</th>
-        </tr>
-      </thead>
+      </table>
 
-      <tbody>
-
-        {reservasPasadas.map(r => (
-
-          <tr key={r.id} className="text-center border-t text-gray-500">
-
-            <td>{r.nombre}</td>
-            <td>{r.cancha}</td>
-            <td>{r.fecha}</td>
-            <td>{r.hora}</td>
-            <td>{r.pagado ? "✔️" : "❌"}</td>
-
-          </tr>
-
-        ))}
-
-      </tbody>
-
-    </table>
-
-  </div>
+    </div>
 
   )
 }
