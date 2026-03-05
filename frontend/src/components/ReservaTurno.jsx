@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import axios from 'axios'
+import { Link } from 'react-router-dom'
 
 const generateAllowedHours = () => {
   const hours = []
@@ -419,11 +420,17 @@ export default function ReservaTurno() {
       <div className="mt-6 bg-white p-4 rounded-lg shadow-sm">
         <h3 className="text-lg font-medium text-gray-800 mb-2">⚽ ¿Querés armar los equipos rápido?</h3>
         <h1 className="text-lg text-center text-gray-600 mt-4">
-          ⚽ ¿Querés armar los equipos rápido?
+          Podés usar nuestro <br />
+
+          <Link
+            to="/sorteo"
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium my-2"
+          >
+            Sorteo de equipos
+          </Link>
+
           <br />
-          Podés usar nuestro <a href="/sorteo" className="text-blue-600 font-medium hover:underline">
-            sorteador de equipos
-          </a> para dividir jugadores al azar.
+          para dividir jugadores al azar.
         </h1>
         {/* {reservas.length === 0 ? (
           <p className="text-sm text-gray-500">No hay reservas aún.</p>

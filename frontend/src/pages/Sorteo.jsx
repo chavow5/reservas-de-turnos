@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
 export default function Sorteo() {
   const [input, setInput] = useState('')
@@ -57,7 +58,7 @@ ${equipoB.join('\n')}
           </p>
 
           <p className="mb-3">
-             Nada de perder 10 minutos discutiendo quién juega con quién. 😄
+            Nada de perder 10 minutos discutiendo quién juega con quién. 😄
           </p>
 
           <div className="border-t pt-3">
@@ -65,12 +66,12 @@ ${equipoB.join('\n')}
               ❗ <span className="font-medium">¿Todavía no reservaste la cancha?</span>
             </p>
 
-            <a
-              href="/"
-              className="text-blue-600 font-semibold hover:underline"
+            <Link
+              to="/"
+              className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium my-2"
             >
-              Reservá tu turno acá
-            </a>
+              Reservar cancha
+            </Link>
           </div>
         </div>
 
