@@ -85,12 +85,15 @@ app.post('/create-preference', async (req, res) => {
 
 app.post('/webhook', async (req, res) => {
   try {
+
     console.log('📩 Webhook recibido:', req.body)
 
-    if (req.body.topic !== 'payment') {
+    // MercadoPago envía muchos eventos
+    if (req.body.type !== 'payment') {
       return res.sendStatus(200)
     }
-    const paymentId = req.body?.resource
+
+    const paymentId = req.body.data?.id
     if (!paymentId) return res.sendStatus(200)
 
     const payment = new Payment(mpClient)
@@ -98,41 +101,70 @@ app.post('/webhook', async (req, res) => {
 
     console.log('💰 Estado del pago:', mpPayment.status)
 
-    if (mpPayment.status === 'approved') {
-
-      const { nombre, fecha, hora, cancha } = mpPayment.metadata
-      const canchaFinal = cancha || '1'
-
-      const { data: existing } = await supabase
-        .from('reservas')
-        .select('*')
-        .eq('fecha', fecha)
-        .eq('hora', hora)
-        .eq('cancha', canchaFinal)
-
-      if (!existing || existing.length === 0) {
-        await supabase.from('reservas').insert([
-          {
-            nombre,
-            fecha,
-            hora,
-            cancha: canchaFinal,
-            pagado: true
-          }
-        ])
-
-        console.log('✅ Reserva creada correctamente')
-      }
+    if (mpPayment.status !== 'approved') {
+      return res.sendStatus(200)
     }
 
+    const { nombre, fecha, hora, cancha } = mpPayment.metadata
+    const canchaFinal = cancha || '1'
+
+    console.log('📅 Intento de reserva:', fecha, hora, canchaFinal)
+
+    // 🔎 BUSCAR SI YA EXISTE
+    const { data: existing, error } = await supabase
+      .from('reservas')
+      .select('*')
+      .eq('fecha', fecha)
+      .eq('hora', hora)
+      .eq('cancha', canchaFinal)
+
+    if (error) {
+      console.error('Error consultando reservas:', error)
+      return res.sendStatus(500)
+    }
+
+    // ❌ YA EXISTE
+    if (existing.length > 0) {
+
+      console.log('⚠️ Doble reserva detectada')
+
+      // OPCIONAL: podrías devolver el dinero automáticamente
+      // (lo podemos hacer después)
+
+      return res.sendStatus(200)
+    }
+
+    // ✅ CREAR RESERVA
+    const { error: insertError } = await supabase
+      .from('reservas')
+      .insert([
+        {
+          nombre,
+          fecha,
+          hora,
+          cancha: canchaFinal,
+          pagado: true,
+          payment_id: paymentId
+        }
+      ])
+
+    if (insertError) {
+      console.error('Error insertando reserva:', insertError)
+      return res.sendStatus(500)
+    }
+
+    console.log('✅ Reserva creada correctamente')
+
     res.sendStatus(200)
-    console.log("INIT POINT:", response.init_point)
 
   } catch (error) {
+
     console.error('Webhook error:', error)
     res.sendStatus(500)
+
   }
 })
+
 app.listen(3000, () =>
   console.log('🚀 Backend Mercado Pago activo en puerto 3000')
 )
