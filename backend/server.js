@@ -58,9 +58,9 @@ app.post('/create-preference', async (req, res) => {
           hora
         },
         back_urls: {
-          success: 'https://reservas-de-turnos.onrender.com/sorteo',  
-          failure: 'https://reservas-de-turnos.onrender.com',
-          pending: 'https://reservas-de-turnos.onrender.com'
+          success: `https://reservas-de-turnos.vercel.app/sorteo?nombre=${nombre}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
+          failure: 'https://reservas-de-turnos.vercel.app',
+          pending: 'https://reservas-de-turnos.vercel.app'
         },
         auto_return: 'approved',
         notification_url: 'https://reservas-de-turnos.onrender.com/webhook'
