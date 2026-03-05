@@ -107,7 +107,7 @@ export default function Dashboard() {
 
     lista.forEach(r => {
 
-      texto += `${r.fecha} - ${r.hora}\n`
+      texto += `${formatearTurno(r.fecha, r.hora)}\n`
       texto += `Cancha ${r.cancha}\n`
       texto += `${r.nombre}\n`
       texto += `Pago: ${r.pagado ? "SI" : "NO"}\n\n`
@@ -145,7 +145,7 @@ export default function Dashboard() {
 
       {/* RESUMEN */}
 
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
 
         <div className="bg-white shadow rounded p-4 text-center">
           <p className="text-gray-500">Turnos hoy</p>
@@ -204,148 +204,150 @@ export default function Dashboard() {
 
       {/* TABLA SEMANA / FILTRADA */}
 
-      <table className="w-full border">
+      <div className="overflow-x-auto">
+        <table className="w-full border text-sm">
 
-        <thead>
+          <thead>
 
-          <tr className="bg-gray-200">
+            <tr className="bg-gray-200">
 
-            <th>Nombre</th>
-            <th>Cancha</th>
-            <th>turno</th>
-            <th>Pagado</th>
-            <th>Acciones</th>
-
-          </tr>
-
-        </thead>
-
-        <tbody>
-
-          {reservasFiltradas.map(r => (
-
-            <tr key={r.id} className="text-center border-t">
-
-              <td>
-                {editando?.id === r.id
-                  ? <input
-                    value={editando.nombre}
-                    onChange={(e) =>
-                      setEditando({ ...editando, nombre: e.target.value })
-                    }
-                  />
-                  : r.nombre}
-              </td>
-
-              <td>
-                {editando?.id === r.id
-                  ? <select
-                    value={editando.cancha}
-                    onChange={(e) =>
-                      setEditando({ ...editando, cancha: e.target.value })
-                    }
-                  >
-                    <option>1</option>
-                    <option>2</option>
-                  </select>
-                  : r.cancha}
-              </td>
-
-              <td className="capitalize">
-                {formatearTurno(r.fecha, r.hora)}
-              </td>
-
-              <td>
-                {editando?.id === r.id
-                  ? <input
-                    value={editando.hora}
-                    onChange={(e) =>
-                      setEditando({ ...editando, hora: e.target.value })
-                    }
-                  />
-                  : r.hora}
-              </td>
-
-              <td>{r.pagado ? "✔️" : "❌"}</td>
-
-              <td className="flex justify-center gap-2">
-
-                {editando?.id === r.id ? (
-
-                  <button
-                    onClick={guardarEdicion}
-                    className="bg-green-500 text-white px-2 py-1 rounded"
-                  >
-                    Guardar
-                  </button>
-
-                ) : (
-
-                  <button
-                    onClick={() => setEditando(r)}
-                    className="bg-yellow-500 text-white px-2 py-1 rounded"
-                  >
-                    Editar
-                  </button>
-
-                )}
-
-                <button
-                  onClick={() => eliminarReserva(r.id)}
-                  className="bg-red-500 text-white px-2 py-1 rounded"
-                >
-                  Eliminar
-                </button>
-
-              </td>
+              <th>Nombre</th>
+              <th>Cancha</th>
+              <th>turno</th>
+              <th>Pagado</th>
+              <th>Acciones</th>
 
             </tr>
 
-          ))}
+          </thead>
 
-        </tbody>
+          <tbody>
 
-      </table>
+            {reservasFiltradas.map(r => (
+
+              <tr key={r.id} className="text-center border-t">
+
+                <td>
+                  {editando?.id === r.id
+                    ? <input
+                      value={editando.nombre}
+                      onChange={(e) =>
+                        setEditando({ ...editando, nombre: e.target.value })
+                      }
+                    />
+                    : r.nombre}
+                </td>
+
+                <td>
+                  {editando?.id === r.id
+                    ? <select
+                      value={editando.cancha}
+                      onChange={(e) =>
+                        setEditando({ ...editando, cancha: e.target.value })
+                      }
+                    >
+                      <option>1</option>
+                      <option>2</option>
+                    </select>
+                    : r.cancha}
+                </td>
+
+                <td className="capitalize">
+                  {formatearTurno(r.fecha, r.hora)}
+                </td>
+
+                <td>
+                  {editando?.id === r.id
+                    ? <input
+                      value={editando.hora}
+                      onChange={(e) =>
+                        setEditando({ ...editando, hora: e.target.value })
+                      }
+                    />
+                    : r.hora}
+                </td>
+
+                <td>{r.pagado ? "✔️" : "❌"}</td>
+
+                <td className="flex justify-center gap-2">
+
+                  {editando?.id === r.id ? (
+
+                    <button
+                      onClick={guardarEdicion}
+                      className="bg-green-500 text-white px-2 py-1 rounded"
+                    >
+                      Guardar
+                    </button>
+
+                  ) : (
+
+                    <button
+                      onClick={() => setEditando(r)}
+                      className="bg-yellow-500 text-white px-2 py-1 rounded"
+                    >
+                      Editar
+                    </button>
+
+                  )}
+
+                  <button
+                    onClick={() => eliminarReserva(r.id)}
+                    className="bg-red-500 text-white px-2 py-1 rounded"
+                  >
+                    Eliminar
+                  </button>
+
+                </td>
+
+              </tr>
+
+            ))}
+
+          </tbody>
+
+        </table>
+        </div>
 
 
-      {/* HISTORIAL */}
+        {/* HISTORIAL */}
 
-      <h2 className="text-xl font-bold mt-10 mb-4">
-        Historial de reservas
-      </h2>
+        <h2 className="text-xl font-bold mt-10 mb-4">
+          Historial de reservas
+        </h2>
 
-      <table className="w-full border">
+        <table className="w-full border">
 
-        <thead>
-          <tr className="bg-gray-200">
-            <th>Nombre</th>
-            <th>Cancha</th>
-            <th>Turno</th>
-            <th>Pagado</th>
-          </tr>
-        </thead>
-
-        <tbody>
-
-          {reservasPasadas.map(r => (
-
-            <tr key={r.id} className="text-center border-t text-gray-500">
-
-              <td>{r.nombre}</td>
-              <td>{r.cancha}</td>
-              <td>{r.fecha}</td>
-              <td>{r.hora}</td>
-              <td>{r.pagado ? "✔️" : "❌"}</td>
-
+          <thead>
+            <tr className="bg-gray-200">
+              <th>Nombre</th>
+              <th>Cancha</th>
+              <th>Turno</th>
+              <th>Pagado</th>
             </tr>
+          </thead>
 
-          ))}
+          <tbody>
 
-        </tbody>
+            {reservasPasadas.map(r => (
 
-      </table>
+              <tr key={r.id} className="text-center border-t text-gray-500">
 
-    </div>
+                <td className="font-semibold">{r.nombre}</td>
+                <td>{r.cancha}</td>
+                <td>{r.fecha}</td>
+                <td>{r.hora}</td>
+                <td>{r.pagado ? "✔️" : "❌"}</td>
 
-  )
+              </tr>
+
+            ))}
+
+          </tbody>
+
+        </table>
+
+      </div>
+
+      )
 }
