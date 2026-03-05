@@ -43,6 +43,36 @@ ${equipoB.join('\n')}
       <div className="bg-white p-6 rounded-lg shadow-md">
 
         <h2 className="text-2xl font-semibold mb-4">⚽ Sorteo de Equipos</h2>
+        <div className="bg-white p-5 rounded-lg shadow mb-6 text-sm text-gray-700">
+          <p className="font-semibold text-lg mb-2"> ¿Ya reservaste la cancha?</p>
+
+          <p className="mb-2">
+            Si ya hiciste la reserva, ahora viene lo importante:
+            <span className="font-semibold"> armar los equipos sin peleas.</span>
+          </p>
+
+          <p className="mb-2">
+            Agregá los nombres de los jugadores y el sistema los divide automáticamente
+            en <span className="font-semibold">2 Equipos A y B</span>  para que lleguen y arranque el picado.
+          </p>
+
+          <p className="mb-3">
+             Nada de perder 10 minutos discutiendo quién juega con quién. 😄
+          </p>
+
+          <div className="border-t pt-3">
+            <p className="text-gray-600">
+              ❗ <span className="font-medium">¿Todavía no reservaste la cancha?</span>
+            </p>
+
+            <a
+              href="/"
+              className="text-blue-600 font-semibold hover:underline"
+            >
+              Reservá tu turno acá
+            </a>
+          </div>
+        </div>
 
         <textarea
           rows="8"
@@ -77,7 +107,7 @@ ${equipoB.join('\n')}
         {(equipoA.length > 0 || equipoB.length > 0) && (
           <>
             <div className="grid md:grid-cols-2 gap-6">
-              
+
               <div className="bg-blue-50 p-4 rounded-lg">
                 <h3 className="font-bold text-blue-700 mb-3">
                   🔵 Equipo A ({equipoA.length})

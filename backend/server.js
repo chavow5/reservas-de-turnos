@@ -58,7 +58,7 @@ app.post('/create-preference', async (req, res) => {
           hora
         },
         back_urls: {
-          success: 'https://reservas-de-turnos.onrender.com/success',
+          success: 'https://reservas-de-turnos.onrender.com/sorteo',  
           failure: 'https://reservas-de-turnos.onrender.com',
           pending: 'https://reservas-de-turnos.onrender.com'
         },

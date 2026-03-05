@@ -10,7 +10,14 @@ const generateAllowedHours = () => {
   hours.push('00:00', '01:00')
   return hours
 }
+// modificar segun el precio real de la reserva
+const PRECIO_RESERVA = 100
+const getDiaTexto = (fecha) => {
+  if (!fecha) return ''
 
+  const date = new Date(fecha)
+  return date.toLocaleDateString('es-AR', { weekday: 'long' })
+}
 
 const ALLOWED_HOURS = generateAllowedHours()
 
@@ -96,6 +103,7 @@ export default function ReservaTurno() {
   const [form, setForm] = useState({ nombre: '', cancha: '1', fecha: '', hora: '' })
   const [loading, setLoading] = useState(false)
   const [currentMonth, setCurrentMonth] = useState(new Date())
+  const [texto, setTexto] = useState("Preparando pago...")
 
   useEffect(() => {
     let mounted = true
@@ -201,14 +209,14 @@ export default function ReservaTurno() {
   }
 
   const buildSelectionDate = (fecha, hora) => {
-  const [year, month, day] = fecha.split('-').map(Number)
-  const [hh] = hora.split(':')
-  const hour = Number(hh)
+    const [year, month, day] = fecha.split('-').map(Number)
+    const [hh] = hora.split(':')
+    const hour = Number(hh)
 
-  const d = new Date(year, month - 1, day, hour, 0, 0, 0)
+    const d = new Date(year, month - 1, day, hour, 0, 0, 0)
 
-  return d
-}
+    return d
+  }
 
   const isHoraInvalida = (fecha, hora) => {
     if (!fecha) return false
@@ -235,6 +243,26 @@ export default function ReservaTurno() {
 
     return `Faltan ${horas}h ${minutos}m`
   }
+  useEffect(() => {
+    if (!loading) return
+
+    const mensajes = [
+      "Preparando pago...",
+      "Conectando con MercadoPago...",
+      "Cargando reserva...",
+      "Redirigiendo..."
+    ]
+
+    let i = 0
+
+    const intervalo = setInterval(() => {
+      i = (i + 1) % mensajes.length
+      setTexto(mensajes[i])
+    }, 1500)
+
+    return () => clearInterval(intervalo)
+
+  }, [loading])
 
 
   return (
@@ -242,10 +270,10 @@ export default function ReservaTurno() {
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md">
         <h2 className="text-2xl font-semibold mb-4 text-gray-800">Reservar turno</h2>
 
-        <label className="block text-sm font-medium text-gray-600 mb-1">Nombre</label>
+        <label className="block text-sm font-medium text-gray-600 mb-1"> Turno a Nombre de: </label>
         <input
           className="block w-full border border-gray-300 rounded px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          placeholder="Tu nombre"
+          placeholder="Tu nombre completo"
           value={form.nombre}
           onChange={handleChange('nombre')}
           required
@@ -317,7 +345,7 @@ export default function ReservaTurno() {
                   disabled={!dentroSemana || isFullDay}
                   onClick={() => selectDay(d.iso)}
                   className={`p-3 border
-                    ${isSelected ? 'bg-blue-600 text-white' : ''}
+                    ${isSelected ? 'bg-blue-600 text-blue-500 scale-105' : ''}
                     ${!dentroSemana ? 'opacity-30 cursor-not-allowed' : isFullDay ? 'bg-red-600 text-white' : 'bg-green-200 hover:bg-green-300'}
                   `}
                 >
@@ -346,12 +374,13 @@ export default function ReservaTurno() {
                 onClick={() => selectHour(h)}
                 disabled={disabled}
                 className={`
-                            py-2 rounded text-sm font-medium border transition w-full
-                            ${isSelected ? 'bg-blue-600 text-white' : ''}
-                            ${horaOcupada ? 'bg-red-500 text-white' : ''}
-                            ${disabled && !horaOcupada ? 'opacity-30 cursor-not-allowed' : ''}
-                            ${!disabled ? 'bg-white hover:bg-blue-50' : ''}
-                          `}
+                  py-2 rounded text-sm font-medium border transition w-full
+
+                  ${horaOcupada ? 'bg-red-500 text-white cursor-not-allowed' : ''}
+                  ${isSelected && !horaOcupada ? 'bg-blue-600 text-white border-blue-700 shadow scale-105' : ''}
+                  ${!horaOcupada && !isSelected ? 'bg-white hover:bg-blue-50' : ''}
+                  ${horaInvalida ? 'opacity-30 cursor-not-allowed' : ''}
+                `}
               >
                 {h}
               </button>
@@ -360,19 +389,43 @@ export default function ReservaTurno() {
         </div>
 
         <p className="text-sm text-gray-500 mb-4">Horarios disponibles: 15:00 a 02:00 (seleccionar por hora)</p>
+        {form.fecha && form.hora && (
+          <div className="bg-gray-100 border rounded-lg p-4 mb-4 text-sm">
+
+            <p className="text-gray-700 mb-2">
+              La reserva se paga al momento de confirmar.
+              <span className="font-bold text-black"> Precio: ${PRECIO_RESERVA}</span>
+            </p>
+
+            <p className="text-gray-800">
+              Reserva para el día <span className="font-semibold capitalize">{getDiaTexto(form.fecha)}</span>
+              {' '}a las <span className="font-semibold">{form.hora} hs</span>
+              {' '}en <span className="font-semibold">Cancha {form.cancha}</span>.
+            </p>
+
+          </div>
+        )}
 
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-medium py-2 rounded"
+          className="w-full py-3 rounded bg-blue-600 text-white"
         >
-          {loading ? 'Procesando...' : 'Pagar reserva'}
+          {loading ? `${texto} ⏳` : "Pagar reserva"}
         </button>
       </form>
 
+
       <div className="mt-6 bg-white p-4 rounded-lg shadow-sm">
-        <h3 className="text-lg font-medium text-gray-800 mb-2">Turnos existentes</h3>
-        {reservas.length === 0 ? (
+        <h3 className="text-lg font-medium text-gray-800 mb-2">⚽ ¿Querés armar los equipos rápido?</h3>
+        <h1 className="text-lg text-center text-gray-600 mt-4">
+          ⚽ ¿Querés armar los equipos rápido?
+          <br />
+          Podés usar nuestro <a href="/sorteo" className="text-blue-600 font-medium hover:underline">
+            sorteador de equipos
+          </a> para dividir jugadores al azar.
+        </h1>
+        {/* {reservas.length === 0 ? (
           <p className="text-sm text-gray-500">No hay reservas aún.</p>
         ) : (
           <ul className="space-y-2 max-h-56 overflow-auto">
@@ -388,7 +441,7 @@ export default function ReservaTurno() {
               </li>
             ))}
           </ul>
-        )}
+        )} */}
       </div>
     </div>
   )
