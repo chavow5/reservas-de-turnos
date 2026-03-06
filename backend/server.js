@@ -58,7 +58,7 @@ app.post('/create-preference', async (req, res) => {
           hora
         },
         back_urls: {
-          success: `https://reservas-de-turnos.vercel.app/sorteo?nombre=${nombre}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
+          success: `https://reservas-de-turnos.vercel.app/sorteo`,
           failure: 'https://reservas-de-turnos.vercel.app',
           pending: 'https://reservas-de-turnos.vercel.app'
         },
