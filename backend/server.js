@@ -51,6 +51,7 @@ app.post('/create-preference', async (req, res) => {
             currency_id: "ARS"
           }
         ],
+        statement_descriptor: "Reserva de Futbol",
         metadata: {
           nombre,
           cancha: canchaFinal,
