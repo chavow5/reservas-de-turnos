@@ -39,46 +39,63 @@ app.post('/create-preference', async (req, res) => {
 
     console.log("BODY:", req.body)
 
+    // ID único para correlacionar el pago con tu sistema
+    const externalReference = `RES-${Date.now()}`
+
     const preference = new Preference(mpClient)
 
     const response = await preference.create({
       body: {
+
+        external_reference: externalReference,
+
         items: [
           {
-            title: `Reserva en cancha ${canchaFinal} el dia ${fecha} hora ${hora}`,
+            title: `Reserva Cancha ${canchaFinal} ${hora}hs`,
+            description: `Reserva de cancha ${canchaFinal} el ${fecha} a las ${hora} hs`,
+            category_id: "sports",
             quantity: 1,
             unit_price: 100,
             currency_id: "ARS"
           }
         ],
-        statement_descriptor: "Reserva de Futbol",
+
+        statement_descriptor: "Reserva Futbol",
+
         metadata: {
           nombre,
           cancha: canchaFinal,
           fecha,
-          hora
+          hora,
+          external_reference: externalReference
         },
+
         back_urls: {
           success: `https://reservas-de-turnos.vercel.app/sorteo`,
           failure: 'https://reservas-de-turnos.vercel.app',
           pending: 'https://reservas-de-turnos.vercel.app'
         },
+
         auto_return: 'approved',
+
         notification_url: 'https://reservas-de-turnos.onrender.com/webhook'
       }
     })
 
     console.log("✅ Preference creada")
     console.log("INIT POINT:", response.init_point)
+    console.log("External Reference:", externalReference)
 
-    res.json({ init_point: response.init_point })
+    res.json({ 
+      init_point: response.init_point,
+      external_reference: externalReference
+    })
 
   } catch (error) {
     console.error("❌ ERROR COMPLETO:", error)
     res.status(500).json({ message: error.message })
   }
 })
-
 
 // ============================
 // WEBHOOK
