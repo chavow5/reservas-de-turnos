@@ -45,7 +45,7 @@ app.post('/create-preference', async (req, res) => {
       body: {
         items: [
           {
-            title: `Reserva cancha ${canchaFinal} ${fecha} ${hora}`,
+            title: `Reserva en cancha ${canchaFinal} el dia ${fecha} hora ${hora}`,
             quantity: 1,
             unit_price: 100,
             currency_id: "ARS"
