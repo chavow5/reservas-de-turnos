@@ -6,19 +6,22 @@ export default function Dashboard() {
 
   const [reservas, setReservas] = useState([])
   const [editando, setEditando] = useState(null)
-  const [filtroFecha, setFiltroFecha] = useState("")
   const navigate = useNavigate()
 
   const formatearTurno = (fecha, hora) => {
-
     const date = new Date(fecha)
 
-    const dia = date.toLocaleDateString("es-AR", {
-      weekday: "long"
-    })
+    const diaTexto = date
+      .toLocaleDateString("es-AR", {
+        weekday: "long",
+        day: "numeric",
+        month: "long"
+      })
+      .replace(',', '')
 
-    return `${dia} ${hora}`
+    const horaTexto = hora?.split(':')[0] || hora
 
+    return `${diaTexto} - ${horaTexto}hs`
   }
   useEffect(() => {
 
@@ -96,7 +99,7 @@ export default function Dashboard() {
 
   })
 
-  const reservasPasadas = reservas.filter(r => r.fecha < hoy)
+  const reservasPasadas = reservas.filter(r => r.fecha < hoy && !r.pagado)
 
   const cancha1 = reservasSemana.filter(r => r.cancha === "1").length
   const cancha2 = reservasSemana.filter(r => r.cancha === "2").length
@@ -120,9 +123,7 @@ export default function Dashboard() {
 
   }
 
-  const reservasFiltradas = filtroFecha
-    ? reservas.filter(r => r.fecha === filtroFecha)
-    : reservasSemana.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora))
+  const reservasOrdenadas = [...reservasSemana].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora))
 
   return (
 
@@ -189,20 +190,7 @@ export default function Dashboard() {
 
       </div>
 
-      {/* FILTRO */}
-
-      <div className="mb-4">
-
-        <input
-          type="date"
-          value={filtroFecha}
-          onChange={(e) => setFiltroFecha(e.target.value)}
-          className="border p-2 rounded"
-        />
-
-      </div>
-
-      {/* TABLA SEMANA / FILTRADA */}
+      {/* TABLA DE RESERVAS */}
 
       <div className="overflow-x-auto">
         <table className="w-full border text-sm">
@@ -223,7 +211,7 @@ export default function Dashboard() {
 
           <tbody>
 
-            {reservasFiltradas.map(r => (
+            {reservasOrdenadas.map(r => (
 
               <tr key={r.id} className="text-center border-t">
 
@@ -253,18 +241,22 @@ export default function Dashboard() {
                 </td>
 
                 <td className="capitalize">
-                  {formatearTurno(r.fecha, r.hora)}
-                </td>
-
-                <td>
-                  {editando?.id === r.id
-                    ? <input
-                      value={editando.hora}
-                      onChange={(e) =>
-                        setEditando({ ...editando, hora: e.target.value })
-                      }
-                    />
-                    : r.hora}
+                  {editando?.id === r.id ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="text-sm text-gray-600">
+                        {formatearTurno(r.fecha, editando.hora)}
+                      </span>
+                      <input
+                        value={editando.hora}
+                        onChange={(e) =>
+                          setEditando({ ...editando, hora: e.target.value })
+                        }
+                        className="border px-2 py-1 rounded w-24 text-center"
+                      />
+                    </div>
+                  ) : (
+                    formatearTurno(r.fecha, r.hora)
+                  )}
                 </td>
 
                 <td>{r.pagado ? "✔️" : "❌"}</td>
@@ -335,8 +327,7 @@ export default function Dashboard() {
 
                 <td className="font-semibold">{r.nombre}</td>
                 <td>{r.cancha}</td>
-                <td>{r.fecha}</td>
-                <td>{r.hora}</td>
+                <td>{formatearTurno(r.fecha, r.hora)}</td>
                 <td>{r.pagado ? "✔️" : "❌"}</td>
 
               </tr>

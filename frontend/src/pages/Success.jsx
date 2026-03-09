@@ -11,7 +11,7 @@ export default function Success() {
   const hasData = nombre && fecha && hora && cancha
 
   // Cambiá este número por el de tu WhatsApp (sin signos, solo código país + número)
-  const whatsappNumber = '5491122233344'
+  const whatsappNumber = '5493804201334'
 
   const whatsappText = hasData
     ? `Hola,%20quiero%20confirmar%20mi%20reserva%20*${encodeURIComponent(nombre)}*%20para%20el%20${encodeURIComponent(fecha)}%20a%20las%20${encodeURIComponent(hora)}%20hs%20en%20Cancha%20${encodeURIComponent(cancha)}.`
