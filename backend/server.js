@@ -8,8 +8,8 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
-console.log("🔥 SERVER NUEVO ACTIVO 🔥")
-console.log("MP TOKEN:", process.env.MP_ACCESS_TOKEN)
+console.log("🔥 SERVER ACTIVADO 🔥")
+// console.log("MP TOKEN:", process.env.MP_ACCESS_TOKEN)
 
 // Mercado Pago
 const mpClient = new MercadoPagoConfig({
@@ -39,7 +39,7 @@ app.post('/create-preference', async (req, res) => {
 
     console.log("BODY:", req.body)
 
-    // ID único para correlacionar el pago con tu sistema
+    // ID único para correlacionar el pago con la base de datos
     const externalReference = `RES-${Date.now()}`
 
     const preference = new Preference(mpClient)
@@ -71,7 +71,7 @@ app.post('/create-preference', async (req, res) => {
         },
 
         back_urls: {
-          success: `https://reservas-de-turnos.vercel.app/sorteo`,
+          success: `https://reservas-de-turnos.vercel.app/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
           failure: 'https://reservas-de-turnos.vercel.app',
           pending: 'https://reservas-de-turnos.vercel.app'
         },
@@ -82,7 +82,7 @@ app.post('/create-preference', async (req, res) => {
       }
     })
 
-    console.log("✅ Preference creada")
+    console.log("✅ Preference de Mercado Pago creada")
     console.log("INIT POINT:", response.init_point)
     console.log("External Reference:", externalReference)
 
