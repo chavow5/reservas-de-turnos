@@ -2,6 +2,19 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useNavigate } from 'react-router-dom'
 
+const ALLOWED_HOURS = [
+  ...Array.from({ length: 9 }, (_, i) => `${String(15 + i).padStart(2, '0')}:00`),
+  '00:00',
+  '01:00'
+]
+
+const getISODate = (date) => {
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 export default function Dashboard() {
 
   const [reservas, setReservas] = useState([])
@@ -83,7 +96,7 @@ export default function Dashboard() {
 
   }
 
-  const hoy = new Date().toISOString().split("T")[0]
+  const hoy = getISODate(new Date())
 
   const reservasHoy = reservas.filter(r => r.fecha === hoy)
 
@@ -154,13 +167,8 @@ export default function Dashboard() {
         </div>
 
         <div className="bg-white shadow rounded p-4 text-center">
-          <p className="text-gray-500">Cancha 1</p>
-          <p className="text-3xl font-bold">{cancha1}</p>
-        </div>
-
-        <div className="bg-white shadow rounded p-4 text-center">
-          <p className="text-gray-500">Cancha 2</p>
-          <p className="text-3xl font-bold">{cancha2}</p>
+          <p className="text-gray-500">Turnos esta semana</p>
+          <p className="text-3xl font-bold">{reservasSemana.length}</p>
         </div>
 
         <div className="bg-white shadow rounded p-4 text-center">
@@ -243,16 +251,32 @@ export default function Dashboard() {
                 <td className="capitalize">
                   {editando?.id === r.id ? (
                     <div className="flex flex-col items-center gap-2">
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={editando.fecha}
+                          min={hoy}
+                          max={getISODate(new Date(new Date().getTime() + 7 * 24 * 60 * 60 * 1000))}
+                          onChange={(e) =>
+                            setEditando({ ...editando, fecha: e.target.value })
+                          }
+                          className="border px-2 py-1 rounded"
+                        />
+                        <select
+                          value={editando.hora}
+                          onChange={(e) =>
+                            setEditando({ ...editando, hora: e.target.value })
+                          }
+                          className="border px-2 py-1 rounded"
+                        >
+                          {ALLOWED_HOURS.map(h => (
+                            <option key={h} value={h}>{h}</option>
+                          ))}
+                        </select>
+                      </div>
                       <span className="text-sm text-gray-600">
-                        {formatearTurno(r.fecha, editando.hora)}
+                        {formatearTurno(editando.fecha, editando.hora)}
                       </span>
-                      <input
-                        value={editando.hora}
-                        onChange={(e) =>
-                          setEditando({ ...editando, hora: e.target.value })
-                        }
-                        className="border px-2 py-1 rounded w-24 text-center"
-                      />
                     </div>
                   ) : (
                     formatearTurno(r.fecha, r.hora)
