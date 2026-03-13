@@ -22,6 +22,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE
 )
 
+// PRECIO DE LA RESERVA
+const PRECIO_RESERVA = 100 // Modificá este valor para cambiar el precio fijo
 
 // ============================
 // CREATE PREFERENCE
@@ -55,7 +57,7 @@ app.post('/create-preference', async (req, res) => {
             description: `Reserva de cancha ${canchaFinal} el ${fecha} a las ${hora} hs`,
             category_id: "sports",
             quantity: 1,
-            unit_price: 100,
+            unit_price: PRECIO_RESERVA,
             currency_id: "ARS"
           }
         ],
