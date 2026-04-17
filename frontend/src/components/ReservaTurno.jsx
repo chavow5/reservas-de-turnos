@@ -20,10 +20,20 @@ export default function ReservaTurno() {
 
   useEffect(() => {
     let mounted = true
+
+    // Calculamos el rango: hoy y los próximos 7 días
+    // (el calendario no permite reservar más allá de ese límite)
+    const hoy = new Date().toISOString().split('T')[0]
+    const enSieteDias = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split('T')[0]
+
     supabase
       .from('reservas')
-      .select('*')
+      .select('fecha, hora, cancha') // solo los campos necesarios para mostrar horarios ocupados
       .eq('pagado', true)
+      .gte('fecha', hoy)
+      .lte('fecha', enSieteDias)
       .order('fecha', { ascending: true })
       .then(({ data, error }) => {
         if (!mounted) return

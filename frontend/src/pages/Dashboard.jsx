@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
-import { supabase } from '../supabaseClient'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 const ALLOWED_HOURS = [
   ...Array.from({ length: 9 }, (_, i) => `${String(15 + i).padStart(2, '0')}:00`),
@@ -15,6 +16,15 @@ const getISODate = (date) => {
   return `${yyyy}-${mm}-${dd}`
 }
 
+// Helper: obtener el JWT y armar el header Authorization
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('adminToken')
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`
+  }
+}
+
 export default function Dashboard() {
 
   const [reservas, setReservas] = useState([])
@@ -23,77 +33,85 @@ export default function Dashboard() {
 
   const formatearTurno = (fecha, hora) => {
     const date = new Date(fecha)
-
     const diaTexto = date
-      .toLocaleDateString("es-AR", {
-        weekday: "long",
-        day: "numeric",
-        month: "long"
+      .toLocaleDateString('es-AR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
       })
       .replace(',', '')
-
     const horaTexto = hora?.split(':')[0] || hora
-
     return `${diaTexto} - ${horaTexto}hs`
   }
+
+  // Si el backend devuelve 401 (token expirado o inválido), mandamos al login
+  const handleUnauthorized = useCallback(() => {
+    localStorage.removeItem('adminToken')
+    navigate('/admin')
+  }, [navigate])
+
+  const fetchReservas = useCallback(async () => {
+    const res = await fetch(`${API_URL}/admin/reservas`, {
+      headers: getAuthHeaders()
+    })
+
+    if (res.status === 401) {
+      handleUnauthorized()
+      return
+    }
+
+    const data = await res.json()
+    const normalized = (data || []).map(r => ({
+      ...r,
+      cancha: r.cancha ?? '1'
+    }))
+    setReservas(normalized)
+  }, [handleUnauthorized])
+
   useEffect(() => {
-
-    const isAuth = localStorage.getItem('adminAuth')
-
-    if (!isAuth) {
+    const token = localStorage.getItem('adminToken')
+    if (!token) {
       navigate('/admin')
+      return
+    }
+    fetchReservas()
+  }, [navigate, fetchReservas])
+
+  const eliminarReserva = async (id) => {
+    if (!confirm('¿Eliminar reserva?')) return
+
+    const res = await fetch(`${API_URL}/admin/reservas/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    })
+
+    if (res.status === 401) {
+      handleUnauthorized()
       return
     }
 
     fetchReservas()
-
-  }, [])
-
-  const fetchReservas = async () => {
-
-    const { data } = await supabase
-      .from('reservas')
-      .select('*')
-      .order('fecha', { ascending: true })
-
-    const normalized = (data || []).map(r => ({
-      ...r,
-      cancha: r.cancha ?? "1"
-    }))
-
-    setReservas(normalized)
-
-  }
-
-  const eliminarReserva = async (id) => {
-
-    if (!confirm("Eliminar reserva?")) return
-
-    await supabase.from('reservas').delete().eq('id', id)
-
-    fetchReservas()
-
   }
 
   const guardarEdicion = async () => {
+    const res = await fetch(`${API_URL}/admin/reservas/${editando.id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(editando)
+    })
 
-    await supabase
-      .from('reservas')
-      .update(editando)
-      .eq('id', editando.id)
+    if (res.status === 401) {
+      handleUnauthorized()
+      return
+    }
 
     setEditando(null)
-
     fetchReservas()
-
   }
 
   const logout = () => {
-
-    localStorage.removeItem('adminAuth')
-
+    localStorage.removeItem('adminToken')
     navigate('/')
-
   }
 
   const hoy = getISODate(new Date())
@@ -101,42 +119,29 @@ export default function Dashboard() {
   const reservasHoy = reservas.filter(r => r.fecha === hoy)
 
   const reservasSemana = reservas.filter(r => {
-
     const fecha = new Date(r.fecha)
-
     const hoyDate = new Date()
-
     const diff = (fecha - hoyDate) / (1000 * 60 * 60 * 24)
-
     return diff >= -1 && diff <= 7
-
   })
 
   const reservasPasadas = reservas.filter(r => r.fecha < hoy && !r.pagado)
 
-  const cancha1 = reservasSemana.filter(r => r.cancha === "1").length
-  const cancha2 = reservasSemana.filter(r => r.cancha === "2").length
-
   const copiar = (lista, titulo) => {
-
     let texto = `⚽ ${titulo}\n\n`
-
     lista.forEach(r => {
-
       texto += `${formatearTurno(r.fecha, r.hora)}\n`
       texto += `Cancha ${r.cancha}\n`
       texto += `${r.nombre}\n`
-      texto += `Pago: ${r.pagado ? "SI" : "NO"}\n\n`
-
+      texto += `Pago: ${r.pagado ? 'SI' : 'NO'}\n\n`
     })
-
     navigator.clipboard.writeText(texto)
-
-    alert("Copiado para WhatsApp")
-
+    alert('Copiado para WhatsApp')
   }
 
-  const reservasOrdenadas = [...reservasSemana].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora))
+  const reservasOrdenadas = [...reservasSemana].sort(
+    (a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora)
+  )
 
   return (
 
@@ -183,14 +188,14 @@ export default function Dashboard() {
       <div className="flex gap-3 mb-6">
 
         <button
-          onClick={() => copiar(reservasHoy, "Turnos de HOY")}
+          onClick={() => copiar(reservasHoy, 'Turnos de HOY')}
           className="bg-green-600 text-white px-4 py-2 rounded"
         >
           Copiar hoy
         </button>
 
         <button
-          onClick={() => copiar(reservasSemana, "Turnos de la SEMANA")}
+          onClick={() => copiar(reservasSemana, 'Turnos de la SEMANA')}
           className="bg-blue-600 text-white px-4 py-2 rounded"
         >
           Copiar semana
@@ -204,21 +209,16 @@ export default function Dashboard() {
         <table className="w-full border text-sm">
 
           <thead>
-
             <tr className="bg-gray-200">
-
               <th>Nombre</th>
               <th>Cancha</th>
-              <th>turno</th>
+              <th>Turno</th>
               <th>Pagado</th>
               <th>Acciones</th>
-
             </tr>
-
           </thead>
 
           <tbody>
-
             {reservasOrdenadas.map(r => (
 
               <tr key={r.id} className="text-center border-t">
@@ -283,7 +283,7 @@ export default function Dashboard() {
                   )}
                 </td>
 
-                <td>{r.pagado ? "✔️" : "❌"}</td>
+                <td>{r.pagado ? '✔️' : '❌'}</td>
 
                 <td className="flex justify-center gap-2">
 
@@ -319,50 +319,45 @@ export default function Dashboard() {
               </tr>
 
             ))}
-
           </tbody>
 
         </table>
-        </div>
-
-
-        {/* HISTORIAL */}
-
-        <h2 className="text-xl font-bold mt-10 mb-4">
-          Historial de reservas
-        </h2>
-
-        <table className="w-full border">
-
-          <thead>
-            <tr className="bg-gray-200">
-              <th>Nombre</th>
-              <th>Cancha</th>
-              <th>Turno</th>
-              <th>Pagado</th>
-            </tr>
-          </thead>
-
-          <tbody>
-
-            {reservasPasadas.map(r => (
-
-              <tr key={r.id} className="text-center border-t text-gray-500">
-
-                <td className="font-semibold">{r.nombre}</td>
-                <td>{r.cancha}</td>
-                <td>{formatearTurno(r.fecha, r.hora)}</td>
-                <td>{r.pagado ? "✔️" : "❌"}</td>
-
-              </tr>
-
-            ))}
-
-          </tbody>
-
-        </table>
-
       </div>
 
-      )
+
+      {/* HISTORIAL */}
+
+      <h2 className="text-xl font-bold mt-10 mb-4">
+        Historial de reservas
+      </h2>
+
+      <table className="w-full border">
+
+        <thead>
+          <tr className="bg-gray-200">
+            <th>Nombre</th>
+            <th>Cancha</th>
+            <th>Turno</th>
+            <th>Pagado</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {reservasPasadas.map(r => (
+
+            <tr key={r.id} className="text-center border-t text-gray-500">
+              <td className="font-semibold">{r.nombre}</td>
+              <td>{r.cancha}</td>
+              <td>{formatearTurno(r.fecha, r.hora)}</td>
+              <td>{r.pagado ? '✔️' : '❌'}</td>
+            </tr>
+
+          ))}
+        </tbody>
+
+      </table>
+
+    </div>
+
+  )
 }

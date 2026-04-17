@@ -1,34 +1,178 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import crypto from 'crypto'
+import jwt from 'jsonwebtoken'
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago'
 import { createClient } from '@supabase/supabase-js'
 
 const app = express()
-app.use(cors())
+
+// ============================
+// CORS — solo orígenes permitidos
+// ============================
+const allowedOrigins = [
+  'https://reservas-de-turnos.vercel.app',
+  'http://localhost:5173'
+]
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Permitir requests sin origin (curl, Postman en desarrollo)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error('CORS: Origen no permitido'))
+    }
+  }
+}))
+
 app.use(express.json())
 
-console.log("🔥 SERVER ACTIVADO 🔥")
-// console.log("MP TOKEN:", process.env.MP_ACCESS_TOKEN)
+console.log('🔥 SERVER ACTIVADO 🔥')
 
-// Mercado Pago
+// ============================
+// CLIENTES EXTERNOS
+// ============================
+
 const mpClient = new MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN
 })
 
-// Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE
 )
 
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-cambiar-en-produccion'
+
 // PRECIO DE LA RESERVA
-const PRECIO_RESERVA = 100 // Modificá este valor para cambiar el precio fijo
+const PRECIO_RESERVA = 100  // Modificar el valor para cambiar el precio de la reserva
 
 // ============================
-// CREATE PREFERENCE
+// KEEP-ALIVE — Supabase (cada 4 días)
+// Previene que la base de datos entre en pausa por inactividad
+// ============================
+const CUATRO_DIAS_MS = 4 * 24 * 60 * 60 * 1000
+
+setInterval(async () => {
+  try {
+    const { error } = await supabase.from('reservas').select('id').limit(1)
+    if (error) console.error('⚠️ Keep-alive Supabase error:', error.message)
+    else console.log('✅ Supabase keep-alive OK —', new Date().toISOString())
+  } catch (e) {
+    console.error('⚠️ Keep-alive excepción:', e.message)
+  }
+}, CUATRO_DIAS_MS)
+
+// ============================
+// HEALTH CHECK
+// También se usa desde cron-job.org para mantener Render y Supabase activos
+// ============================
+app.get('/health', async (req, res) => {
+  try {
+    const { error } = await supabase.from('reservas').select('id').limit(1)
+    if (error) return res.status(500).json({ status: 'error', db: error.message })
+    res.json({ status: 'ok', timestamp: new Date().toISOString() })
+  } catch (e) {
+    res.status(500).json({ status: 'error', message: e.message })
+  }
+})
+
+// ============================
+// MIDDLEWARE — Verificar JWT Admin
+// ============================
+const verifyAdmin = (req, res, next) => {
+  const auth = req.headers.authorization
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No autorizado' })
+  }
+  const token = auth.split(' ')[1]
+  try {
+    req.admin = jwt.verify(token, JWT_SECRET)
+    next()
+  } catch {
+    res.status(401).json({ error: 'Token inválido o expirado' })
+  }
+}
+
+// ============================
+// ADMIN LOGIN
+// La contraseña se valida contra la variable de entorno ADMIN_PASSWORD (privada del backend)
+// ============================
+app.post('/admin/login', (req, res) => {
+  const { password } = req.body
+  const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
+
+  if (!ADMIN_PASSWORD) {
+    console.error('❌ ADMIN_PASSWORD no configurada en las variables de entorno')
+    return res.status(500).json({ error: 'Admin no configurado en el servidor' })
+  }
+
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Contraseña incorrecta' })
+  }
+
+  const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: '8h' })
+  console.log('✅ Admin login exitoso')
+  res.json({ token })
+})
+
+// ============================
+// ADMIN — Reservas (protegidas con JWT)
+// Create preference
 // ============================
 
+// GET — todas las reservas
+app.get('/admin/reservas', verifyAdmin, async (req, res) => {
+  const { data, error } = await supabase
+    .from('reservas')
+    .select('*')
+    .order('fecha', { ascending: true })
+
+  if (error) {
+    console.error('Error obteniendo reservas:', error)
+    return res.status(500).json({ error: error.message })
+  }
+  res.json(data)
+})
+
+// PUT — actualizar una reserva
+app.put('/admin/reservas/:id', verifyAdmin, async (req, res) => {
+  const { id } = req.params
+  const { nombre, fecha, hora, cancha, pagado } = req.body
+
+  const { error } = await supabase
+    .from('reservas')
+    .update({ nombre, fecha, hora, cancha, pagado })
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error actualizando reserva:', error)
+    return res.status(500).json({ error: error.message })
+  }
+  res.json({ ok: true })
+})
+
+// DELETE — eliminar una reserva
+app.delete('/admin/reservas/:id', verifyAdmin, async (req, res) => {
+  const { id } = req.params
+
+  const { error } = await supabase
+    .from('reservas')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error eliminando reserva:', error)
+    return res.status(500).json({ error: error.message })
+  }
+  res.json({ ok: true })
+})
+
+// ============================
+// CREATE PREFERENCE — MercadoPago
+// ============================
 app.post('/create-preference', async (req, res) => {
   try {
 
@@ -39,31 +183,23 @@ app.post('/create-preference', async (req, res) => {
       return res.status(400).json({ error: 'Datos incompletos' })
     }
 
-    console.log("BODY:", req.body)
-
-    // ID único para correlacionar el pago con la base de datos
     const externalReference = `RES-${Date.now()}`
-
     const preference = new Preference(mpClient)
 
     const response = await preference.create({
       body: {
-
         external_reference: externalReference,
-
         items: [
           {
             title: `Reserva Cancha ${canchaFinal} ${hora}hs`,
             description: `Reserva de cancha ${canchaFinal} el ${fecha} a las ${hora} hs`,
-            category_id: "sports",
+            category_id: 'sports',
             quantity: 1,
             unit_price: PRECIO_RESERVA,
-            currency_id: "ARS"
+            currency_id: 'ARS'
           }
         ],
-
-        statement_descriptor: "Reserva Futbol",
-
+        statement_descriptor: 'Reserva Futbol',
         metadata: {
           nombre,
           cancha: canchaFinal,
@@ -71,44 +207,71 @@ app.post('/create-preference', async (req, res) => {
           hora,
           external_reference: externalReference
         },
-
         back_urls: {
           success: `https://reservas-de-turnos.vercel.app/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
           failure: 'https://reservas-de-turnos.vercel.app',
           pending: 'https://reservas-de-turnos.vercel.app'
         },
-
         auto_return: 'approved',
-
         notification_url: 'https://reservas-de-turnos.onrender.com/webhook'
       }
     })
 
-    console.log("✅ Preference de Mercado Pago creada")
-    console.log("INIT POINT:", response.init_point)
-    console.log("External Reference:", externalReference)
-
-    res.json({ 
+    console.log('✅ Preference creada — Ref:', externalReference)
+    res.json({
       init_point: response.init_point,
       external_reference: externalReference
     })
-
   } catch (error) {
-    console.error("❌ ERROR COMPLETO:", error)
+    console.error('❌ Error create-preference:', error)
     res.status(500).json({ message: error.message })
   }
 })
 
 // ============================
-// WEBHOOK
+// WEBHOOK — MercadoPago
 // ============================
+
+// Verificar firma del webhook de MercadoPago
+// Requiere que MP_WEBHOOK_SECRET esté configurado en las variables de entorno
+// (se obtiene en el panel de MercadoPago → Webhooks → ver secreto)
+const verifyMPSignature = (req) => {
+  const secret = process.env.MP_WEBHOOK_SECRET
+  if (!secret) {
+    // Si no está configurado, logueamos advertencia pero no bloqueamos
+    console.warn('⚠️ MP_WEBHOOK_SECRET no configurado — saltando verificación de firma')
+    return true
+  }
+
+  const signatureHeader = req.headers['x-signature']
+  const requestId = req.headers['x-request-id']
+
+  if (!signatureHeader || !requestId) return false
+
+  const parts = signatureHeader.split(',')
+  let ts = ''
+  let v1 = ''
+  for (const part of parts) {
+    const [key, val] = part.trim().split('=')
+    if (key === 'ts') ts = val
+    if (key === 'v1') v1 = val
+  }
+
+  const dataId = req.body?.data?.id
+  const manifest = `id:${dataId};request-id:${requestId};ts:${ts};`
+  const expected = crypto.createHmac('sha256', secret).update(manifest).digest('hex')
+  return expected === v1
+}
 
 app.post('/webhook', async (req, res) => {
   try {
-
     console.log('📩 Webhook recibido:', req.body)
 
-    // MercadoPago envía muchos eventos
+    if (!verifyMPSignature(req)) {
+      console.warn('⚠️ Firma de webhook inválida — request rechazado')
+      return res.sendStatus(401)
+    }
+
     if (req.body.type !== 'payment') {
       return res.sendStatus(200)
     }
@@ -128,22 +291,22 @@ app.post('/webhook', async (req, res) => {
     const { nombre, fecha, hora, cancha } = mpPayment.metadata
     const canchaFinal = cancha || '1'
 
-    console.log('📅 Intento de reserva:', fecha, hora, canchaFinal)
+    console.log('📅 Intento de reserva:', nombre, fecha, hora, canchaFinal)
 
-    // 🔎 BUSCAR SI YA EXISTE
+    // Verificar si ya existe (prevenir doble reserva)
     const { data: existing, error } = await supabase
       .from('reservas')
-      .select('*')
+      .select('id')
       .eq('fecha', fecha)
       .eq('hora', hora)
       .eq('cancha', canchaFinal)
+      .limit(1)
 
     if (error) {
       console.error('Error consultando reservas:', error)
       return res.sendStatus(500)
     }
 
-    // ❌ YA EXISTE
     if (existing.length > 0) {
 
       console.log('⚠️ Doble reserva detectada')
