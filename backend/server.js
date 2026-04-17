@@ -31,6 +31,13 @@ app.use(express.json())
 
 console.log('🔥 SERVER ACTIVADO 🔥')
 
+// 🔍 DIAGNÓSTICO TEMPORAL — listar variables de entorno disponibles (sin valores)
+const envKeys = Object.keys(process.env)
+console.log('📋 Variables de entorno disponibles:', envKeys.join(', '))
+console.log('✅ ADMIN_PASSWORD definida:', !!process.env.ADMIN_PASSWORD)
+console.log('✅ JWT_SECRET definida:', !!process.env.JWT_SECRET)
+
+
 // ============================
 // CLIENTES EXTERNOS
 // ============================
