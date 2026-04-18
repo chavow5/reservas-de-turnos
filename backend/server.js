@@ -18,13 +18,15 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Permitir requests sin origin (curl, Postman en desarrollo)
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true)
     } else {
       callback(new Error('CORS: Origen no permitido'))
     }
-  }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }))
 
 app.use(express.json())
