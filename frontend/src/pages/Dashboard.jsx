@@ -29,6 +29,7 @@ export default function Dashboard() {
 
   const [reservas, setReservas] = useState([])
   const [editando, setEditando] = useState(null)
+  const [nuevaReserva, setNuevaReserva] = useState(null)
   const navigate = useNavigate()
 
   const formatearTurno = (fecha, hora) => {
@@ -112,6 +113,24 @@ export default function Dashboard() {
   const logout = () => {
     localStorage.removeItem('adminToken')
     navigate('/')
+  }
+
+  const crearReserva = async () => {
+    if (!nuevaReserva.nombre || !nuevaReserva.fecha || !nuevaReserva.hora) return alert('Completa todos los campos')
+
+    const res = await fetch(`${API_URL}/admin/reservas`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(nuevaReserva)
+    })
+
+    if (res.status === 401) {
+      handleUnauthorized()
+      return
+    }
+
+    setNuevaReserva(null)
+    fetchReservas()
   }
 
   const hoy = getISODate(new Date())
@@ -201,7 +220,49 @@ export default function Dashboard() {
           Copiar semana
         </button>
 
+        <button
+          onClick={() => setNuevaReserva({ nombre: '', cancha: '1', fecha: hoy, hora: '15:00', pagado: false })}
+          className="bg-purple-600 text-white px-4 py-2 rounded ml-auto flex items-center gap-1"
+        >
+          <span>➕</span> Nueva Reserva Manual
+        </button>
+
       </div>
+
+      {/* FORMULARIO NUEVA RESERVA */}
+      {nuevaReserva && (
+        <div className="bg-white p-4 shadow-md rounded mb-6 border-l-4 border-purple-600 flex flex-wrap gap-4 items-end">
+          <div>
+            <label className="block text-sm text-gray-600">Nombre</label>
+            <input className="border p-2 rounded w-48" placeholder="Nombre jugador" value={nuevaReserva.nombre} onChange={e => setNuevaReserva({ ...nuevaReserva, nombre: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600">Cancha</label>
+            <select className="border p-2 rounded w-20" value={nuevaReserva.cancha} onChange={e => setNuevaReserva({ ...nuevaReserva, cancha: e.target.value })}>
+              <option>1</option>
+              <option>2</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600">Fecha</label>
+            <input type="date" className="border p-2 rounded" value={nuevaReserva.fecha} onChange={e => setNuevaReserva({ ...nuevaReserva, fecha: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600">Hora</label>
+            <select className="border p-2 rounded" value={nuevaReserva.hora} onChange={e => setNuevaReserva({ ...nuevaReserva, hora: e.target.value })}>
+              {ALLOWED_HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-col items-center justify-center h-[42px]">
+            <label className="block text-sm text-gray-600 whitespace-nowrap">Pagado</label>
+            <input type="checkbox" className="w-4 h-4 cursor-pointer" checked={nuevaReserva.pagado} onChange={e => setNuevaReserva({ ...nuevaReserva, pagado: e.target.checked })} />
+          </div>
+          <div className="flex gap-2 ml-auto">
+            <button onClick={crearReserva} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Crear</button>
+            <button onClick={() => setNuevaReserva(null)} className="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2 rounded">Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {/* TABLA DE RESERVAS */}
 

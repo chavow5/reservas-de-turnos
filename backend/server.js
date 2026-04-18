@@ -138,6 +138,28 @@ app.get('/admin/reservas', verifyAdmin, async (req, res) => {
   res.json(data)
 })
 
+// POST — crear una reserva manualmente
+app.post('/admin/reservas', verifyAdmin, async (req, res) => {
+  const { nombre, fecha, hora, cancha, pagado } = req.body
+
+  const { error } = await supabase
+    .from('reservas')
+    .insert([{
+      nombre,
+      fecha,
+      hora,
+      cancha: cancha || '1',
+      pagado: pagado || false,
+      payment_id: 'admin_manual_' + Date.now()
+    }])
+
+  if (error) {
+    console.error('Error creando reserva admin:', error)
+    return res.status(500).json({ error: error.message })
+  }
+  res.json({ ok: true })
+})
+
 // PUT — actualizar una reserva
 app.put('/admin/reservas/:id', verifyAdmin, async (req, res) => {
   const { id } = req.params
