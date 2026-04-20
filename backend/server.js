@@ -270,9 +270,9 @@ app.post('/create-preference', async (req, res) => {
           external_reference: externalReference
         },
         back_urls: {
-          success: `https://reservas-de-turnos.vercel.app/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
-          failure: 'https://reservas-de-turnos.vercel.app',
-          pending: 'https://reservas-de-turnos.vercel.app'
+          success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
+          failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}`,
+          pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}`
         },
         auto_return: 'approved',
         notification_url: 'https://reservas-de-turnos.onrender.com/webhook'
