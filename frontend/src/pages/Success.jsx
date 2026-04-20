@@ -7,6 +7,7 @@ export default function Success() {
   const fecha = searchParams.get('fecha')
   const hora = searchParams.get('hora')
   const cancha = searchParams.get('cancha')
+  const paymentId = searchParams.get('payment_id')
 
   const hasData = nombre && fecha && hora && cancha
 
@@ -76,6 +77,16 @@ export default function Success() {
                     <p className="text-slate-800 font-bold">Número {cancha}</p>
                   </div>
                 </div>
+
+                {paymentId && (
+                  <div className="flex items-center mt-2 pt-3 border-t border-slate-100">
+                    <span className="w-10 text-xl">💳</span>
+                    <div>
+                      <p className="text-xs text-slate-500 font-semibold">Payment ID (Para tu curso)</p>
+                      <p className="text-emerald-600 font-bold font-mono">{paymentId}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
