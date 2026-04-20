@@ -143,6 +143,24 @@ app.get('/admin/reservas', verifyAdmin, async (req, res) => {
 // POST — crear una reserva manualmente
 app.post('/admin/reservas', verifyAdmin, async (req, res) => {
   const { nombre, fecha, hora, cancha, pagado } = req.body
+  const canchaFinal = cancha || '1'
+
+  const { data: existing, error: errCheck } = await supabase
+    .from('reservas')
+    .select('id')
+    .eq('fecha', fecha)
+    .eq('hora', hora)
+    .eq('cancha', canchaFinal)
+    .limit(1)
+
+  if (errCheck) {
+    console.error('Error verificando disponibilidad:', errCheck)
+    return res.status(500).json({ error: errCheck.message })
+  }
+
+  if (existing && existing.length > 0) {
+    return res.status(400).json({ error: 'El turno ya se encuentra ocupado para esa fecha, hora y cancha.' })
+  }
 
   const { error } = await supabase
     .from('reservas')
@@ -150,7 +168,7 @@ app.post('/admin/reservas', verifyAdmin, async (req, res) => {
       nombre,
       fecha,
       hora,
-      cancha: cancha || '1',
+      cancha: canchaFinal,
       pagado: pagado || false,
       payment_id: 'admin_manual_' + Date.now()
     }])
@@ -166,10 +184,29 @@ app.post('/admin/reservas', verifyAdmin, async (req, res) => {
 app.put('/admin/reservas/:id', verifyAdmin, async (req, res) => {
   const { id } = req.params
   const { nombre, fecha, hora, cancha, pagado } = req.body
+  const canchaFinal = cancha || '1'
+
+  const { data: existing, error: errCheck } = await supabase
+    .from('reservas')
+    .select('id')
+    .eq('fecha', fecha)
+    .eq('hora', hora)
+    .eq('cancha', canchaFinal)
+    .neq('id', id)
+    .limit(1)
+
+  if (errCheck) {
+    console.error('Error verificando disponibilidad:', errCheck)
+    return res.status(500).json({ error: errCheck.message })
+  }
+
+  if (existing && existing.length > 0) {
+    return res.status(400).json({ error: 'El turno ya se encuentra ocupado para esa fecha, hora y cancha.' })
+  }
 
   const { error } = await supabase
     .from('reservas')
-    .update({ nombre, fecha, hora, cancha, pagado })
+    .update({ nombre, fecha, hora, cancha: canchaFinal, pagado })
     .eq('id', id)
 
   if (error) {
