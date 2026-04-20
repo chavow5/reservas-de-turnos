@@ -11,7 +11,7 @@ import SelectorHorario from './SelectorHorario'
 const PRECIO_RESERVA = 100
 
 export default function ReservaTurno() {
-  const CANCHAS = ['1', '2'] // adicionar más en el futuro
+  const CANCHAS = ['1', '2']
 
   const [reservas, setReservas] = useState([])
   const [form, setForm] = useState({ nombre: '', cancha: '1', fecha: '', hora: '' })
@@ -21,8 +21,6 @@ export default function ReservaTurno() {
   useEffect(() => {
     let mounted = true
 
-    // Calculamos el rango: hoy y los próximos 7 días
-    // (el calendario no permite reservar más allá de ese límite)
     const hoy = new Date().toISOString().split('T')[0]
     const enSieteDias = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       .toISOString()
@@ -30,7 +28,7 @@ export default function ReservaTurno() {
 
     supabase
       .from('reservas')
-      .select('fecha, hora, cancha') // solo los campos necesarios para mostrar horarios ocupados
+      .select('fecha, hora, cancha') 
       .eq('pagado', true)
       .gte('fecha', hoy)
       .lte('fecha', enSieteDias)
@@ -41,7 +39,6 @@ export default function ReservaTurno() {
           console.error('Supabase fetch error:', error)
           setReservas([])
         } else {
-          // normalizamos por si hay registros antiguos sin campo cancha
           const normalized = (data || []).map(r => ({ ...r, cancha: r.cancha ?? '1' }))
           setReservas(normalized)
         }
@@ -53,7 +50,6 @@ export default function ReservaTurno() {
     setForm(prev => {
       const updated = { ...prev, [key]: e.target.value }
       if (key === 'cancha') {
-        // al cambiar de cancha descartamos fecha/hora previas
         updated.fecha = ''
         updated.hora = ''
       }
@@ -135,80 +131,101 @@ export default function ReservaTurno() {
   }, [loading])
 
   return (
-    <div className="max-w-2xl mx-auto mt-10 px-4">
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md">
-        <h2 className="text-2xl font-semibold mb-4 text-gray-800">Reservar turno</h2>
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-12 pt-8 px-4">
+      <div className="max-w-2xl mx-auto">
+        
+        <form onSubmit={handleSubmit} className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 mb-8">
+          
+          <h2 className="text-3xl font-black mb-8 text-gray-800 text-center sm:text-left">
+            Reservar Cancha
+          </h2>
 
-        <label className="block text-sm font-medium text-gray-600 mb-1"> Turno a Nombre de: </label>
-        <input
-          className="block w-full border border-gray-300 rounded px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          placeholder="Tu nombre completo"
-          value={form.nombre}
-          onChange={handleChange('nombre')}
-          required
-        />
-
-        <SelectorCancha 
-          canchas={CANCHAS} 
-          selectedCancha={form.cancha} 
-          onSelect={selectCancha} 
-        />
-
-        <Calendario 
-          formFecha={form.fecha} 
-          formCancha={form.cancha} 
-          reservas={reservas} 
-          onSelectDay={selectDay} 
-        />
-
-        <SelectorHorario 
-          formFecha={form.fecha} 
-          formCancha={form.cancha} 
-          formHora={form.hora} 
-          reservas={reservas} 
-          onSelectHour={selectHour} 
-        />
-
-        {form.fecha && form.hora && (
-          <div className="bg-gray-100 border rounded-lg p-4 mb-4 text-sm">
-            <p className="text-gray-700 mb-2">
-              La reserva se paga al momento de confirmar.
-              <span className="font-bold text-black"> Precio: ${PRECIO_RESERVA}</span>
-            </p>
-
-            <p className="text-gray-800">
-              Reserva para el día{' '}
-              <span className="font-semibold capitalize">
-                {getDiaTexto(form.fecha)} {form.fecha.split('-').reverse().join('/')}
-              </span>
-              {' '}a las <span className="font-semibold">{form.hora} hs</span>
-              {' '}en <span className="font-semibold">Cancha {form.cancha}</span>.
-            </p>
+          <div className="mb-6">
+            <label className="block text-sm font-semibold text-slate-700 mb-2">
+              Turno a Nombre de:
+            </label>
+            <input
+              className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none transition-all"
+              placeholder="Tu nombre completo"
+              value={form.nombre}
+              onChange={handleChange('nombre')}
+              required
+            />
           </div>
-        )}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-3 rounded bg-blue-600 text-white"
-        >
-          {loading ? `${texto} ⏳` : "Pagar reserva"}
-        </button>
-      </form>
+          <SelectorCancha 
+            canchas={CANCHAS} 
+            selectedCancha={form.cancha} 
+            onSelect={selectCancha} 
+          />
 
-      <div className="mt-6 bg-white p-4 rounded-lg shadow-sm">
-        <h3 className="text-lg font-medium text-gray-800 mb-2">⚽ ¿Querés armar los equipos rápido?</h3>
-        <h1 className="text-lg text-center text-gray-600 mt-4">
-          Podés usar nuestro <br />
+          <Calendario 
+            formFecha={form.fecha} 
+            formCancha={form.cancha} 
+            reservas={reservas} 
+            onSelectDay={selectDay} 
+          />
+
+          <SelectorHorario 
+            formFecha={form.fecha} 
+            formCancha={form.cancha} 
+            formHora={form.hora} 
+            reservas={reservas} 
+            onSelectHour={selectHour} 
+          />
+
+          {form.fecha && form.hora && (
+            <div className="bg-gray-100 border border-gray-200 rounded-2xl p-5 mb-8 text-gray-800 animate-fade-in">
+              <div className="flex items-start gap-3">
+                <span className="text-xl mt-0.5">ℹ️</span>
+                <div>
+                  <p className="font-medium mb-1">
+                    La reserva se paga al momento de confirmar.
+                  </p>
+                  <p className="mb-3 text-gray-700">
+                    Monto a pagar: <span className="font-black text-lg bg-white px-2 py-0.5 rounded-lg border border-gray-300 ml-1">${PRECIO_RESERVA}</span>
+                  </p>
+                  <p className="text-sm opacity-90 border-t border-gray-300 pt-3">
+                    Reserva para el día{' '}
+                    <span className="font-bold capitalize">
+                      {getDiaTexto(form.fecha)} {form.fecha.split('-').reverse().join('/')}
+                    </span>
+                    {' '}a las <span className="font-bold">{form.hora} hs</span>
+                    {' '}en <span className="font-bold">Cancha {form.cancha}</span>.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading || !form.nombre || !form.fecha || !form.hora}
+            className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:shadow-none active:scale-95 transition-all text-white font-bold text-lg shadow-sm shadow-blue-200"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                {texto}
+              </span>
+            ) : "Pagar reserva"}
+          </button>
+        </form>
+
+        <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 text-center flex flex-col items-center">
+          <span className="text-4xl mb-3">⚽</span>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">¿Querés armar los equipos rápido?</h3>
+          <p className="text-slate-600 mb-5 max-w-sm">
+            Podés usar nuestra herramienta gratuita para dividir a los jugadores al azar, sin peleas.
+          </p>
           <Link
             to="/sorteo"
-            className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium my-2"
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-6 py-2.5 rounded-xl font-medium transition-all shadow-sm"
           >
-            Sorteo de equipos
+            <span>🎲</span> Ir al Sorteo de Equipos
           </Link>
-          <br />
-          para dividir jugadores al azar.
-        </h1>
+        </div>
+
       </div>
     </div>
   )

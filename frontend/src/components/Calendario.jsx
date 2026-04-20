@@ -14,56 +14,75 @@ export default function Calendario({ formFecha, formCancha, reservas, onSelectDa
   }
 
   return (
-    <>
-      <label className="block text-sm font-medium text-gray-600 mb-2">Fecha (seleccioná con un click)</label>
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
-        <div className="bg-red-600 text-white p-3 flex items-center justify-between">
-          <button type="button" onClick={goPrevMonth} className="px-3 py-1 hover:bg-red-500 rounded">◀</button>
-          <h2 className="text-xl font-bold text-center flex-1">
+    <div className="mb-8">
+      <label className="block text-sm font-semibold text-slate-700 mb-2">Fecha (seleccioná con un click)</label>
+      
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-4">
+        <div className="bg-red-600 text-white p-4 flex items-center justify-between">
+          <button type="button" onClick={goPrevMonth} className="p-2 hover:bg-red-500 rounded-xl transition-colors">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          </button>
+          <h2 className="text-lg font-bold text-center flex-1 capitalize tracking-wide">
             {currentMonth.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
           </h2>
-          <button type="button" onClick={goNextMonth} className="px-3 py-1 hover:bg-red-500 rounded">▶</button>
+          <button type="button" onClick={goNextMonth} className="p-2 hover:bg-red-500 rounded-xl transition-colors">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          </button>
         </div>
 
-        <div className="grid grid-cols-7 text-center bg-gray-100 py-2 text-sm font-semibold">
+        <div className="grid grid-cols-7 text-center bg-slate-50 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100">
           {weekDays.map(d => (
             <div key={d}>{d}</div>
           ))}
         </div>
 
-        <div className="text-xs flex justify-center gap-4 py-2">
-          <span className="px-2 py-1 bg-green-200 rounded">Disponible</span>
-          <span className="px-2 py-1 bg-red-600 text-white rounded">Completo</span>
-          <span className="px-2 py-1 bg-blue-600 text-white rounded">Seleccionado</span>
-        </div>
-        <div className="grid grid-cols-7 text-center">
-          {days.map((d, index) => {
-            if (!d) return <div key={index} className="p-3"></div>
+        <div className="p-2">
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {days.map((d, index) => {
+              if (!d) return <div key={index} className="p-3"></div>
 
-            const isSelected = formFecha === d.iso
-            const dentroSemana = isFechaDentroDeSemana(d.iso)
+              const isSelected = formFecha === d.iso
+              const dentroSemana = isFechaDentroDeSemana(d.iso)
 
-            const reservasDia = reservas.filter(r => r.fecha === d.iso && r.cancha === formCancha)
-            const horasOcupadas = new Set(reservasDia.map(r => r.hora))
-            const isFullDay = horasOcupadas.size >= ALLOWED_HOURS.length
+              const reservasDia = reservas.filter(r => r.fecha === d.iso && r.cancha === formCancha)
+              const horasOcupadas = new Set(reservasDia.map(r => r.hora))
+              const isFullDay = horasOcupadas.size >= ALLOWED_HOURS.length
 
-            return (
-              <button
-                key={d.iso}
-                type="button"
-                disabled={!dentroSemana || isFullDay}
-                onClick={() => onSelectDay(d.iso)}
-                className={`p-3 border
-                  ${isSelected ? 'bg-blue-600 text-blue-500 scale-105' : ''}
-                  ${!dentroSemana ? 'opacity-30 cursor-not-allowed' : isFullDay ? 'bg-red-600 text-white' : 'bg-green-200 hover:bg-green-300'}
-                `}
-              >
-                {d.day}
-              </button>
-            )
-          })}
+              return (
+                <button
+                  key={d.iso}
+                  type="button"
+                  disabled={!dentroSemana || isFullDay}
+                  onClick={() => onSelectDay(d.iso)}
+                  className={`relative p-3 rounded-xl font-medium text-sm transition-all duration-200
+                    ${isSelected 
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-200 scale-105 z-10 font-bold' 
+                      : !dentroSemana 
+                        ? 'text-slate-300 cursor-not-allowed' 
+                        : isFullDay 
+                          ? 'bg-red-600 text-white cursor-not-allowed' 
+                          : 'bg-green-200 text-green-900 hover:bg-green-300'}
+                  `}
+                >
+                  {d.day}
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
-    </>
+
+      <div className="flex flex-wrap justify-center gap-4 text-xs font-medium text-slate-600">
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-full bg-green-200"></div> Disponible
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-full bg-red-600"></div> Completo
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-full bg-blue-600 shadow-sm shadow-blue-200"></div> Seleccionado
+        </div>
+      </div>
+    </div>
   )
 }
