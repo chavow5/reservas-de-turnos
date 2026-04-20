@@ -248,32 +248,34 @@ app.post('/create-preference', async (req, res) => {
     const externalReference = `RES-${Date.now()}`
     const preference = new Preference(mpClient)
 
-    const response = await preference.create({
-      body: {
-        external_reference: externalReference,
-        items: [
-          {
-            title: `Reserva Cancha ${canchaFinal} ${hora}hs`,
-            description: `Reserva de cancha ${canchaFinal} el ${fecha} a las ${hora} hs`,
-            category_id: 'sports',
-            quantity: 1,
-            unit_price: PRECIO_RESERVA,
-            currency_id: 'ARS'
-          }
-        ],
-        statement_descriptor: 'Reserva Futbol',
-        metadata: {
-          nombre,
-          cancha: canchaFinal,
-          fecha,
-          hora,
-          external_reference: externalReference
-        },
-        back_urls: {
-          success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
-          failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}`,
-          pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}`
-        },
+        const baseUrl = (process.env.FRONTEND_URL || 'https://reservas-de-turnos.vercel.app').replace(/\/$/, '');
+        
+        const response = await preference.create({
+          body: {
+            external_reference: externalReference,
+            items: [
+              {
+                title: `Reserva Cancha ${canchaFinal} ${hora}hs`,
+                description: `Reserva de cancha ${canchaFinal} el ${fecha} a las ${hora} hs`,
+                category_id: 'sports',
+                quantity: 1,
+                unit_price: PRECIO_RESERVA,
+                currency_id: 'ARS'
+              }
+            ],
+            statement_descriptor: 'Reserva Futbol',
+            metadata: {
+              nombre,
+              cancha: canchaFinal,
+              fecha,
+              hora,
+              external_reference: externalReference
+            },
+            back_urls: {
+              success: `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
+              failure: `${baseUrl}`,
+              pending: `${baseUrl}`
+            },
         auto_return: 'approved',
         notification_url: 'https://reservas-de-turnos.onrender.com/webhook'
       }
