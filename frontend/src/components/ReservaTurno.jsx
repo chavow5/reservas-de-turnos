@@ -103,7 +103,8 @@ export default function ReservaTurno() {
 
     } catch (err) {
       console.error('Reserva error:', err)
-      alert('Error al iniciar pago')
+      const backendError = err.response?.data?.message || err.response?.data?.error || err.message
+      alert(`Error al iniciar pago: ${backendError}`)
     } finally {
       setLoading(false)
     }
