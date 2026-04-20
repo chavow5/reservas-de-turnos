@@ -252,7 +252,8 @@ app.post('/create-preference', async (req, res) => {
     const externalReference = "davidramirez11@hotmail.com.ar"
     const preference = new Preference(mpClient)
 
-    const baseUrl = (process.env.FRONTEND_URL || 'https://reservas-de-turnos.vercel.app').replace(/\/$/, '');
+    // Usamos el dominio real en lugar de localhost para evitar que MercadoPago rechace la URL
+    const baseUrl = 'https://reservas-de-turnos.vercel.app';
 
     const response = await preference.create({
       body: {
