@@ -39,7 +39,10 @@ console.log('🔥 SERVER ACTIVADO 🔥')
 // ============================
 
 const mpClient = new MercadoPagoConfig({
-  accessToken: process.env.MP_ACCESS_TOKEN
+  accessToken: process.env.MP_ACCESS_TOKEN,
+  options: {
+    integratorId: 'dev_24c65fb163bf11ea96500242ac130004'
+  }
 })
 
 const supabase = createClient(
@@ -49,8 +52,8 @@ const supabase = createClient(
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-cambiar-en-produccion'
 
-// PRECIO DE LA RESERVA
-const PRECIO_RESERVA = 100  // Modificar el valor para cambiar el precio de la reserva
+// PRECIO DE LA RESERVA (Debe ser mayor a 1 USD para el desafío, por eso lo subimos a 2000)
+const PRECIO_RESERVA = 2000  // Modificar el valor para cambiar el precio de la reserva
 
 // ============================
 // KEEP-ALIVE — Supabase (cada 4 días)
@@ -245,37 +248,46 @@ app.post('/create-preference', async (req, res) => {
       return res.status(400).json({ error: 'Datos incompletos' })
     }
 
-    const externalReference = `RES-${Date.now()}`
+    // 🔥 REQUISITO DEL DESAFÍO: Coloca aquí tu correo asociado a Mercado Pago
+    const externalReference = "davidramirez11@hotmail.com.ar"
     const preference = new Preference(mpClient)
 
-        const baseUrl = (process.env.FRONTEND_URL || 'https://reservas-de-turnos.vercel.app').replace(/\/$/, '');
-        
-        const response = await preference.create({
-          body: {
-            external_reference: externalReference,
-            items: [
-              {
-                title: `Reserva Cancha ${canchaFinal} ${hora}hs`,
-                description: `Reserva de cancha ${canchaFinal} el ${fecha} a las ${hora} hs`,
-                category_id: 'sports',
-                quantity: 1,
-                unit_price: PRECIO_RESERVA,
-                currency_id: 'ARS'
-              }
-            ],
-            statement_descriptor: 'Reserva Futbol',
-            metadata: {
-              nombre,
-              cancha: canchaFinal,
-              fecha,
-              hora,
-              external_reference: externalReference
-            },
-            back_urls: {
-              success: `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
-              failure: `${baseUrl}`,
-              pending: `${baseUrl}`
-            },
+    const baseUrl = (process.env.FRONTEND_URL || 'https://reservas-de-turnos.vercel.app').replace(/\/$/, '');
+
+    const response = await preference.create({
+      body: {
+        external_reference: externalReference,
+        items: [
+          {
+            id: "1234", // REQUISITO: ID de 4 dígitos
+            title: `Reserva Cancha ${canchaFinal} ${hora}hs`,
+            description: "Dispositivo de tienda móvil de comercio electrónico", // REQUISITO
+            picture_url: "https://images.unsplash.com/photo-1511886929837-354d827aae26", // REQUISITO: URL de imagen
+            category_id: 'sports',
+            quantity: 1, // REQUISITO: 1
+            unit_price: PRECIO_RESERVA, // REQUISITO: Mayor a 1 USD
+            currency_id: 'ARS'
+          }
+        ],
+        payment_methods: {
+          excluded_payment_methods: [
+            { id: "visa" } // REQUISITO: Excluir Visa
+          ],
+          installments: 6  // REQUISITO: Máximo 6 cuotas
+        },
+        statement_descriptor: 'Reserva Futbol',
+        metadata: {
+          nombre,
+          cancha: canchaFinal,
+          fecha,
+          hora,
+          external_reference: externalReference
+        },
+        back_urls: {
+          success: `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
+          failure: `${baseUrl}`,
+          pending: `${baseUrl}`
+        },
         auto_return: 'approved',
         notification_url: 'https://reservas-de-turnos.onrender.com/webhook'
       }
