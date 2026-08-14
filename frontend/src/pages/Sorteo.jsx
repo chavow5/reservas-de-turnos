@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { useSearchParams } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
+import { useTenant } from '../context/TenantContext'
 
 export default function Sorteo() {
+  const { slug, nombreNegocio } = useTenant()
   const [input, setInput] = useState('')
   const [jugadores, setJugadores] = useState([])
   const [equipoA, setEquipoA] = useState([])
@@ -35,13 +36,7 @@ export default function Sorteo() {
   }
 
   const copiarEquipos = () => {
-    const texto = `
-⚽ EQUIPO A:
-${equipoA.join('\n')}
-
-⚽ EQUIPO B:
-${equipoB.join('\n')}
-`
+    const texto = `*EQUIPOS - ${nombreNegocio}*\n\n*EQUIPO A:*\n${equipoA.map((j, i) => `- ${j}`).join('\n')}\n\n*EQUIPO B:*\n${equipoB.map((j, i) => `- ${j}`).join('\n')}\n`
     navigator.clipboard.writeText(texto)
     alert('¡Equipos copiados al portapapeles!')
   }
@@ -55,7 +50,7 @@ ${equipoB.join('\n')}
             <div className="flex items-center gap-3">
               <span className="text-2xl">✅</span>
               <div>
-                <p className="font-semibold text-lg">Reserva confirmada</p>
+                <p className="font-semibold text-lg">Reserva confirmada en {nombreNegocio}</p>
                 <p className="opacity-90">Para el <b>{fecha} a las {hora}</b> en <b>Cancha {cancha}</b></p>
               </div>
             </div>
@@ -65,7 +60,7 @@ ${equipoB.join('\n')}
         <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100">
           
           <h2 className="text-3xl font-black mb-6 bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
-            Sorteo de Equipos
+            Sorteo de Equipos - {nombreNegocio}
           </h2>
           
           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-8 text-slate-700">
@@ -89,10 +84,10 @@ ${equipoB.join('\n')}
                 <span>❗</span> <span className="font-medium">¿Todavía no reservaste la cancha?</span>
               </p>
               <Link
-                to="/"
+                to={`/${slug}`}
                 className="inline-block bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm shadow-blue-200"
               >
-                Ir a Reservar Cancha
+                Ir a Reservar Cancha en {nombreNegocio}
               </Link>
             </div>
           </div>
