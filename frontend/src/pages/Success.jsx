@@ -1,22 +1,26 @@
 import { Link, useSearchParams } from "react-router-dom"
+import { useTenant } from "../context/TenantContext"
 
 export default function Success() {
   const [searchParams] = useSearchParams()
+  const { slug, nombreNegocio, telefono } = useTenant()
 
   const nombre = searchParams.get('nombre')
   const fecha = searchParams.get('fecha')
   const hora = searchParams.get('hora')
   const cancha = searchParams.get('cancha')
+  const isDemo = searchParams.get('demo') === 'true'
+  const mpUrl = searchParams.get('mp_url')
 
   const hasData = nombre && fecha && hora && cancha
 
-  // Cambiá este número por el de tu WhatsApp (sin signos, solo código país + número)
-  const whatsappNumber = '5493804201334'
+  // Número de WhatsApp dinámico del negocio
+  const whatsappNumber = telefono || '5493804201334'
 
   const formattedDate = fecha ? fecha.split('-').reverse().join('/') : ''
   const baseMessage = hasData
-    ? `✅ ¡Hola! Paso a confirmar mi reserva:\n\n👤 Nombre: ${nombre}\n📅 Fecha: ${formattedDate}\n⏰ Hora: ${hora} hs\n🏟️ Cancha: ${cancha}`
-    : 'Hola, quiero consultar por una reserva.'
+    ? `*¡Hola! Paso a confirmar mi reserva en ${nombreNegocio}:*\n\n- *Nombre:* ${nombre}\n- *Fecha:* ${formattedDate}\n- *Hora:* ${hora} hs\n- *Cancha:* Cancha ${cancha}`
+    : `*Hola, quiero consultar por una reserva en ${nombreNegocio}.*`
 
   const whatsappText = encodeURIComponent(baseMessage)
   const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappText}`
@@ -30,23 +34,56 @@ export default function Success() {
     <div className="min-h-screen bg-slate-50 font-sans pb-12 pt-10 px-4">
       <div className="max-w-xl mx-auto animate-fade-in">
         
+        {isDemo && (
+          <div className="bg-amber-100 border border-amber-300 text-amber-900 p-4 rounded-2xl mb-6 text-center font-bold text-sm shadow-sm">
+            🚀 Esta es una confirmación de prueba generada en Modo Demo.
+          </div>
+        )}
+
+        {mpUrl && !isDemo && (
+          <div className="bg-blue-50 border border-blue-200 text-blue-900 p-4 rounded-2xl mb-6 text-center font-medium text-sm shadow-sm flex items-center justify-center gap-2">
+            <span>💳</span> Se abrió una nueva pestaña para abonar la seña con Mercado Pago.
+          </div>
+        )}
+
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center relative overflow-hidden mb-8">
-          {/* Círculo decorativo de fondo */}
           <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-full -mr-16 -mt-16 opacity-50 pointer-events-none"></div>
           
           <div className="flex justify-center mb-4">
-            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center text-4xl shadow-sm shadow-emerald-200">
-              ✅
+            <div className={`w-20 h-20 rounded-full flex items-center justify-center text-4xl shadow-sm ${
+              mpUrl ? 'bg-blue-100 shadow-blue-200' : 'bg-emerald-100 shadow-emerald-200'
+            }`}>
+              {mpUrl ? '💳' : '✅'}
             </div>
           </div>
 
           <h1 className="text-3xl font-black text-slate-800 mb-2">
-            ¡Turno Confirmado!
+            {mpUrl ? '¡Reserva en Proceso!' : '¡Turno Confirmado!'}
           </h1>
           
-          <p className="text-slate-500 mb-8">
-            El pago fue aprobado correctamente y tu reserva está asegurada.
+          <p className="text-slate-500 mb-6">
+            {isDemo 
+              ? `Tu reserva de prueba en ${nombreNegocio} quedó guardada exitosamente.` 
+              : mpUrl 
+                ? `Abrimos Mercado Pago en otra pestaña para que abones la seña. Al completarlo, tu lugar queda asegurado.`
+                : `El pago fue aprobado correctamente y tu reserva en ${nombreNegocio} está asegurada.`}
           </p>
+
+          {mpUrl && (
+            <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-4 mb-6 text-center">
+              <p className="text-xs text-blue-800 font-semibold mb-2">
+                ¿No se abrió la pestaña o la cerraste por error?
+              </p>
+              <a
+                href={mpUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-5 py-2.5 rounded-xl text-sm transition-all shadow-sm shadow-blue-200"
+              >
+                <span>💳</span> Abrir Mercado Pago para pagar
+              </a>
+            </div>
+          )}
 
           {hasData && (
             <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 mb-8 text-left shadow-inner">
@@ -104,9 +141,6 @@ export default function Success() {
                 📋 Copiar mensaje
               </button>
             </div>
-            <p className="text-xs text-slate-400 mt-4">
-              O envíanos directamente al <span className="font-bold text-slate-500">+{whatsappNumber}</span>
-            </p>
           </div>
         </div>
 
@@ -117,7 +151,7 @@ export default function Success() {
             Organizá el partido y dividí a los jugadores al azar en Equipo A y Equipo B, súper rápido.
           </p>
           <Link
-            to={`/sorteo?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${cancha}`}
+            to={`/${slug}/sorteo?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${cancha}`}
             className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white px-6 py-3 rounded-xl font-medium transition-all shadow-sm shadow-purple-200"
           >
             <span>🎲</span> Ir al Sorteo de Equipos
@@ -126,10 +160,10 @@ export default function Success() {
 
         <div className="text-center">
           <Link
-            to="/"
+            to={`/${slug}`}
             className="inline-block text-slate-500 hover:text-purple-600 font-medium transition-colors underline underline-offset-4"
           >
-            Volver al Inicio
+            Volver a {nombreNegocio}
           </Link>
         </div>
 
