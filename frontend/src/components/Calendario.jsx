@@ -14,32 +14,42 @@ export default function Calendario({ formFecha, formCancha, reservas, onSelectDa
   }
 
   return (
-    <div className="mb-8">
+    <div className="mb-6 sm:mb-8">
       <label className="block text-sm font-semibold text-slate-700 mb-2">Fecha (seleccioná con un click)</label>
       
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-4">
-        <div className="bg-red-600 text-white p-4 flex items-center justify-between">
-          <button type="button" onClick={goPrevMonth} className="p-2 hover:bg-red-500 rounded-xl transition-colors">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-3">
+        <div className="bg-red-600 text-white p-3 sm:p-4 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={goPrevMonth}
+            className="p-2 hover:bg-red-500 rounded-xl transition-colors active:scale-90"
+            aria-label="Mes anterior"
+          >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <h2 className="text-lg font-bold text-center flex-1 capitalize tracking-wide">
+          <h2 className="text-base sm:text-lg font-bold text-center flex-1 capitalize tracking-wide">
             {currentMonth.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
           </h2>
-          <button type="button" onClick={goNextMonth} className="p-2 hover:bg-red-500 rounded-xl transition-colors">
+          <button
+            type="button"
+            onClick={goNextMonth}
+            className="p-2 hover:bg-red-500 rounded-xl transition-colors active:scale-90"
+            aria-label="Mes siguiente"
+          >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           </button>
         </div>
 
-        <div className="grid grid-cols-7 text-center bg-slate-50 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100">
+        <div className="grid grid-cols-7 text-center bg-slate-50 py-2 sm:py-3 text-[11px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100">
           {weekDays.map(d => (
             <div key={d}>{d}</div>
           ))}
         </div>
 
-        <div className="p-2">
+        <div className="p-1.5 sm:p-2">
           <div className="grid grid-cols-7 gap-1 text-center">
             {days.map((d, index) => {
-              if (!d) return <div key={index} className="p-3"></div>
+              if (!d) return <div key={index} className="p-2 sm:p-3 min-h-[38px] sm:min-h-[44px]"></div>
 
               const isSelected = formFecha === d.iso
               const dentroSemana = isFechaDentroDeSemana(d.iso)
@@ -54,9 +64,9 @@ export default function Calendario({ formFecha, formCancha, reservas, onSelectDa
                   type="button"
                   disabled={!dentroSemana || isFullDay}
                   onClick={() => onSelectDay(d.iso)}
-                  className={`relative p-3 rounded-xl font-medium text-sm transition-all duration-200
+                  className={`relative p-1.5 sm:p-2.5 min-h-[36px] sm:min-h-[42px] rounded-xl font-semibold text-xs sm:text-sm transition-all duration-200 active:scale-95 flex items-center justify-center
                     ${isSelected 
-                      ? 'bg-blue-600 text-white shadow-md shadow-blue-200 scale-105 z-10 font-bold' 
+                      ? 'bg-blue-600 text-white shadow-sm shadow-blue-200 ring-2 ring-blue-400 font-black' 
                       : !dentroSemana 
                         ? 'text-slate-300 cursor-not-allowed' 
                         : isFullDay 
@@ -72,7 +82,7 @@ export default function Calendario({ formFecha, formCancha, reservas, onSelectDa
         </div>
       </div>
 
-      <div className="flex flex-wrap justify-center gap-4 text-xs font-medium text-slate-600">
+      <div className="flex flex-wrap justify-center gap-3 sm:gap-4 text-xs font-medium text-slate-600">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-full bg-green-200"></div> Disponible
         </div>

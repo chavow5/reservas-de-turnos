@@ -10,17 +10,30 @@ import SelectorHorario from './SelectorHorario'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 export default function ReservaTurno() {
-  const { slug, nombreNegocio, montoSena, modoPrueba, error: tenantError, loading: tenantLoading } = useTenant()
+  const { slug, nombreNegocio, montoSena, modoPrueba, canchasActivas = [], horarios = [], error: tenantError, loading: tenantLoading } = useTenant()
   const navigate = useNavigate()
 
-  const CANCHAS = ['1', '2']
-
   const [reservas, setReservas] = useState([])
-  const [form, setForm] = useState({ nombre: '', cancha: '1', fecha: '', hora: '' })
+  const [form, setForm] = useState({
+    nombre: '',
+    cancha: canchasActivas[0]?.id || '1',
+    fecha: '',
+    hora: ''
+  })
   const [loading, setLoading] = useState(false)
   const [texto, setTexto] = useState("Preparando pago...")
   const [dbError, setDbError] = useState(null)
   const [dbChecking, setDbChecking] = useState(false)
+
+  // Asegurar que si cambian las canchas activas, la cancha seleccionada sea válida
+  useEffect(() => {
+    if (canchasActivas.length > 0) {
+      const existe = canchasActivas.some(c => String(c.id) === String(form.cancha))
+      if (!existe) {
+        setForm(prev => ({ ...prev, cancha: canchasActivas[0].id, fecha: '', hora: '' }))
+      }
+    }
+  }, [canchasActivas, form.cancha])
 
   // Cargar turnos ocupados para el negocio actual
   const fetchTurnosOcupados = useCallback(async () => {
@@ -242,36 +255,36 @@ export default function ReservaTurno() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-12 pt-8 px-4">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-12 pt-4 sm:pt-8 px-3 sm:px-4">
       <div className="max-w-2xl mx-auto">
         
         {/* BANNER MODO DEMO / PRUEBAS */}
         {modoPrueba && (
-          <div className="bg-amber-50 border border-amber-200 p-4 sm:p-5 rounded-2xl mb-6 text-amber-900 shadow-sm flex items-start gap-3">
-            <span className="text-2xl mt-0.5">🚀</span>
+          <div className="bg-amber-50 border border-amber-200 p-4 sm:p-5 rounded-2xl mb-4 sm:mb-6 text-amber-900 shadow-sm flex items-start gap-3">
+            <span className="text-xl sm:text-2xl mt-0.5">🚀</span>
             <div>
-              <p className="font-bold text-base">Modo Demostración Activo</p>
-              <p className="text-sm opacity-90">
+              <p className="font-bold text-sm sm:text-base">Modo Demostración Activo</p>
+              <p className="text-xs sm:text-sm opacity-90 mt-0.5">
                 Esta es una vista previa de prueba para clientes. Podés reservar turnos directamente 
-                <strong> sin pasar por Mercado Pago</strong> para ver cómo funciona el sistema.
+                <strong> sin pasar por Mercado Pago</strong>.
               </p>
             </div>
           </div>
         )}
 
-        {/* ALERTA DE ERROR DE BASE DE DATOS (TAREA B) */}
+        {/* ALERTA DE ERROR DE BASE DE DATOS */}
         {dbError && (
-          <div className="bg-rose-50 border border-rose-200 p-5 rounded-2xl mb-6 text-rose-900 shadow-sm animate-fade-in">
+          <div className="bg-rose-50 border border-rose-200 p-4 sm:p-5 rounded-2xl mb-4 sm:mb-6 text-rose-900 shadow-sm animate-fade-in">
             <div className="flex items-start gap-3">
-              <span className="text-2xl">⚠️</span>
+              <span className="text-xl sm:text-2xl">⚠️</span>
               <div className="flex-1">
-                <p className="font-bold mb-1">Problema de conexión</p>
-                <p className="text-sm opacity-95 mb-3">{dbError}</p>
+                <p className="font-bold text-sm sm:text-base mb-1">Problema de conexión</p>
+                <p className="text-xs sm:text-sm opacity-95 mb-3">{dbError}</p>
                 <button
                   type="button"
                   onClick={handleSubmit}
                   disabled={dbChecking || loading}
-                  className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-sm font-bold px-4 py-2 rounded-xl transition-all shadow-sm shadow-rose-200 flex items-center gap-2"
+                  className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-rose-200 flex items-center gap-2"
                 >
                   {dbChecking ? 'Reintentando conexión...' : '🔄 Reintentar ahora'}
                 </button>
@@ -280,9 +293,9 @@ export default function ReservaTurno() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 mb-8">
+        <form onSubmit={handleSubmit} className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 mb-6 sm:mb-8">
           
-          <h2 className="text-3xl font-black mb-8 text-gray-800 text-center sm:text-left">
+          <h2 className="text-2xl sm:text-3xl font-black mb-6 sm:mb-8 text-gray-800 text-center sm:text-left">
             Reservar Cancha en {nombreNegocio}
           </h2>
 
@@ -300,7 +313,7 @@ export default function ReservaTurno() {
           </div>
 
           <SelectorCancha 
-            canchas={CANCHAS} 
+            canchas={canchasActivas} 
             selectedCancha={form.cancha} 
             onSelect={selectCancha} 
           />
@@ -317,6 +330,7 @@ export default function ReservaTurno() {
             formCancha={form.cancha} 
             formHora={form.hora} 
             reservas={reservas} 
+            horarios={horarios}
             onSelectHour={selectHour} 
           />
 
@@ -337,7 +351,7 @@ export default function ReservaTurno() {
                       {getDiaTexto(form.fecha)} {form.fecha.split('-').reverse().join('/')}
                     </span>
                     {' '}a las <span className="font-bold">{form.hora} hs</span>
-                    {' '}en <span className="font-bold">Cancha {form.cancha}</span>.
+                    {' '}en <span className="font-bold">{canchasActivas.find(c => String(c.id) === String(form.cancha))?.nombre || `Cancha ${form.cancha}`}</span>.
                   </p>
                 </div>
               </div>

@@ -1,37 +1,38 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTenant } from '../context/TenantContext'
 import { useAuth } from '../context/AuthContext'
+import { ALL_POSSIBLE_HOURS, DEFAULT_HOURS, todayISO } from '../utils/dateUtils'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
-const ALLOWED_HOURS = [
-  ...Array.from({ length: 9 }, (_, i) => `${String(15 + i).padStart(2, '0')}:00`),
-  '00:00',
-  '01:00'
-]
-
-const getISODate = (date) => {
-  const yyyy = date.getFullYear()
-  const mm = String(date.getMonth() + 1).padStart(2, '0')
-  const dd = String(date.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
 export default function Dashboard() {
-  const { slug, nombreNegocio, refreshTenant } = useTenant()
+  const { slug, nombreNegocio, canchas: tenantCanchas = [], horarios: tenantHorarios = [], refreshTenant } = useTenant()
   const { token, user, isAdmin, isColaborador, logout } = useAuth()
   const navigate = useNavigate()
 
-  const [activeTab, setActiveTab] = useState('turnos') // 'turnos' | 'config' | 'colaboradores'
+  const [activeTab, setActiveTab] = useState('turnos') // 'turnos' | 'canchas' | 'config' | 'colaboradores'
+  const [filterPeriodo, setFilterPeriodo] = useState('hoy') // 'hoy' | 'proximos' | 'historial' | 'todos'
+  const [filterCancha, setFilterCancha] = useState('todas') // 'todas' | cancha.id
+  const [filterPago, setFilterPago] = useState('todos') // 'todos' | 'pagado' | 'señado' | 'sin_pago'
   const [reservas, setReservas] = useState([])
   const [loading, setLoading] = useState(true)
   const [editando, setEditando] = useState(null)
   const [nuevaReserva, setNuevaReserva] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [filterPago, setFilterPago] = useState('todos') // 'todos' | 'pagado' | 'señado' | 'sin_pago'
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
+
+  // Gestión de Canchas y Disponibilidad (Admin y Colaboradores)
+  const [canchas, setCanchas] = useState(
+    tenantCanchas && tenantCanchas.length > 0
+      ? tenantCanchas
+      : [
+          { id: '1', nombre: 'Cancha 1', activa: true },
+          { id: '2', nombre: 'Cancha 2', activa: true }
+        ]
+  )
+  const [togglingCanchaId, setTogglingCanchaId] = useState(null)
 
   // Config del Negocio (Admin)
   const [config, setConfig] = useState({
@@ -40,6 +41,7 @@ export default function Dashboard() {
     direccion: '',
     monto_sena: 100,
     precio_total: 100,
+    horarios: tenantHorarios && tenantHorarios.length > 0 ? tenantHorarios : DEFAULT_HOURS,
     mp_access_token: '',
     tiene_mp_token: false
   })
@@ -49,6 +51,22 @@ export default function Dashboard() {
   const [colaboradores, setColaboradores] = useState([])
   const [nuevoColab, setNuevoColab] = useState({ nombre: '', email: '', password: '' })
   const [colabMsg, setColabMsg] = useState('')
+
+  // Sincronizar canchas y horarios iniciales desde el contexto del negocio
+  useEffect(() => {
+    if (tenantCanchas && tenantCanchas.length > 0) {
+      setCanchas(tenantCanchas)
+    }
+  }, [tenantCanchas])
+
+  useEffect(() => {
+    if (tenantHorarios && tenantHorarios.length > 0) {
+      setConfig(prev => ({
+        ...prev,
+        horarios: prev.horarios && prev.horarios.length > 0 ? prev.horarios : tenantHorarios
+      }))
+    }
+  }, [tenantHorarios])
 
   const getAuthHeaders = useCallback(() => {
     const currentToken = token || localStorage.getItem('adminToken')
@@ -99,12 +117,59 @@ export default function Dashboard() {
       })
       if (res.ok) {
         const data = await res.json()
-        setConfig(data)
+        setConfig(prev => ({
+          ...data,
+          horarios: data.horarios && data.horarios.length > 0 ? data.horarios : (prev.horarios || DEFAULT_HOURS)
+        }))
       }
     } catch (err) {
       console.error('Error fetching config:', err)
     }
   }, [isAdmin, getAuthHeaders])
+
+  // Cargar Canchas y su Disponibilidad (Admin y Colaborador)
+  const fetchCanchas = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/admin/canchas`, {
+        headers: getAuthHeaders()
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data) && data.length > 0) {
+          setCanchas(data)
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching canchas:', err)
+    }
+  }, [getAuthHeaders])
+
+  // Alternar disponibilidad de una cancha (Admin y Colaborador)
+  const toggleDisponibilidadCancha = async (canchaId, estadoActual) => {
+    setTogglingCanchaId(canchaId)
+    try {
+      const nuevoEstado = !estadoActual
+      const res = await fetch(`${API_URL}/admin/canchas/${canchaId}/disponibilidad`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ activa: nuevoEstado })
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        setCanchas(data.canchas || [])
+        refreshTenant()
+      } else {
+        const err = await res.json()
+        alert(`Error al actualizar estado de la cancha: ${err.error}`)
+      }
+    } catch (err) {
+      console.error('Error cambiando disponibilidad:', err)
+      alert('Error de conexión al cambiar disponibilidad de la cancha')
+    } finally {
+      setTogglingCanchaId(null)
+    }
+  }
 
   // Cargar Colaboradores (Solo Admin)
   const fetchColaboradores = useCallback(async () => {
@@ -129,11 +194,12 @@ export default function Dashboard() {
       return
     }
     fetchReservas()
+    fetchCanchas()
     if (isAdmin) {
       fetchConfig()
       fetchColaboradores()
     }
-  }, [token, slug, navigate, isAdmin, fetchReservas, fetchConfig, fetchColaboradores])
+  }, [token, slug, navigate, isAdmin, fetchReservas, fetchCanchas, fetchConfig, fetchColaboradores])
 
   // Formateador de fecha
   const formatearTurno = (fecha, hora) => {
@@ -149,7 +215,7 @@ export default function Dashboard() {
     return `${diaTexto} - ${horaTexto}hs`
   }
 
-  // Cambiar estado de pago rápido desde la tabla
+  // Cambiar estado de pago rápido desde la tabla o tarjetas
   const cambiarEstadoPago = async (id, nuevoEstado) => {
     const res = await fetch(`${API_URL}/admin/reservas/${id}`, {
       method: 'PUT',
@@ -261,6 +327,40 @@ export default function Dashboard() {
     }
   }
 
+  // Presets y gestión de horarios para el negocio
+  const aplicarPresetHorarios = (preset) => {
+    let nuevos = []
+    if (preset === 'tarde_noche') {
+      nuevos = ['15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00']
+    } else if (preset === 'completo') {
+      nuevos = [
+        '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00',
+        '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00', '02:00'
+      ]
+    } else if (preset === 'nocturno') {
+      nuevos = ['18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00', '02:00', '03:00']
+    } else if (preset === 'matutino_tarde') {
+      nuevos = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00']
+    }
+    setConfig({ ...config, horarios: nuevos })
+  }
+
+  const toggleHorarioSlot = (hora) => {
+    const current = config.horarios || []
+    if (current.includes(hora)) {
+      if (current.length <= 1) {
+        alert('Debe haber al menos 1 horario disponible configurado.')
+        return
+      }
+      setConfig({ ...config, horarios: current.filter(h => h !== hora) })
+    } else {
+      const updated = [...current, hora].sort(
+        (a, b) => ALL_POSSIBLE_HOURS.indexOf(a) - ALL_POSSIBLE_HOURS.indexOf(b)
+      )
+      setConfig({ ...config, horarios: updated })
+    }
+  }
+
   // Crear Colaborador
   const crearColaborador = async (e) => {
     e.preventDefault()
@@ -301,24 +401,60 @@ export default function Dashboard() {
     }
   }
 
-  const hoy = getISODate(new Date())
+  // Cálculo de fechas y grupos temporales
+  const hoy = todayISO()
+  const fechaHoyObj = new Date()
+  const diaHoyTexto = fechaHoyObj.toLocaleDateString('es-AR', { weekday: 'long' })
+  const diaHoyNumero = fechaHoyObj.getDate()
+  const mesHoyTexto = fechaHoyObj.toLocaleDateString('es-AR', { month: 'long' })
 
-  const reservasHoy = reservas.filter(r => r.fecha === hoy)
-  const reservasSemana = reservas.filter(r => {
-    const fecha = new Date(r.fecha)
-    const hoyDate = new Date()
-    const diff = (fecha - hoyDate) / (1000 * 60 * 60 * 24)
-    return diff >= -1 && diff <= 7
-  })
+  const reservasHoy = useMemo(() => {
+    return reservas.filter(r => r.fecha === hoy).sort((a, b) => a.hora.localeCompare(b.hora))
+  }, [reservas, hoy])
 
-  // Filtros de Reservas
-  const reservasFiltradas = reservas
-    .filter(r => {
-      if (filterPago === 'todos') return true
-      return r.estado_pago === filterPago
+  const reservasProximos = useMemo(() => {
+    return reservas.filter(r => r.fecha > hoy).sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora))
+  }, [reservas, hoy])
+
+  const reservasHistorial = useMemo(() => {
+    return reservas.filter(r => r.fecha < hoy).sort((a, b) => b.fecha.localeCompare(a.fecha) || b.hora.localeCompare(a.hora))
+  }, [reservas, hoy])
+
+  const reservasSemana = useMemo(() => {
+    return reservas.filter(r => {
+      const fecha = new Date(r.fecha)
+      const diff = (fecha - fechaHoyObj) / (1000 * 60 * 60 * 24)
+      return diff >= -1 && diff <= 7
     })
-    .filter(r => r.nombre.toLowerCase().includes(searchTerm.toLowerCase()))
-    .sort((a, b) => b.fecha.localeCompare(a.fecha) || a.hora.localeCompare(b.hora))
+  }, [reservas, fechaHoyObj])
+
+  // Horarios de turnos disponibles del negocio
+  const businessHorarios = config.horarios && config.horarios.length > 0
+    ? config.horarios
+    : (tenantHorarios && tenantHorarios.length > 0 ? tenantHorarios : DEFAULT_HOURS)
+
+  // Filtrado compuesto para la tabla y tarjetas móviles
+  const reservasFiltradas = useMemo(() => {
+    let lista = reservas
+
+    if (filterPeriodo === 'hoy') lista = reservasHoy
+    else if (filterPeriodo === 'proximos') lista = reservasProximos
+    else if (filterPeriodo === 'historial') lista = reservasHistorial
+
+    if (filterCancha !== 'todas') {
+      lista = lista.filter(r => String(r.cancha) === String(filterCancha))
+    }
+
+    if (filterPago !== 'todos') {
+      lista = lista.filter(r => r.estado_pago === filterPago)
+    }
+
+    if (searchTerm.trim()) {
+      lista = lista.filter(r => r.nombre.toLowerCase().includes(searchTerm.toLowerCase()))
+    }
+
+    return lista
+  }, [reservas, reservasHoy, reservasProximos, reservasHistorial, filterPeriodo, filterCancha, filterPago, searchTerm])
 
   const totalPages = Math.max(1, Math.ceil(reservasFiltradas.length / itemsPerPage))
   const startIndex = (currentPage - 1) * itemsPerPage
@@ -326,42 +462,57 @@ export default function Dashboard() {
 
   const copiarWhatsApp = (lista, titulo) => {
     let texto = `*${titulo.toUpperCase()} - ${nombreNegocio}*\n\n`
-    lista.forEach(r => {
-      const estadoTxt = r.estado_pago === 'pagado' ? '[PAGADO]' : r.estado_pago === 'señado' ? '[SEÑADO]' : '[SIN PAGO]'
-      texto += `- *Turno:* ${formatearTurno(r.fecha, r.hora)}\n`
-      texto += `  - Cancha: ${r.cancha} | Jugador: ${r.nombre}\n`
-      texto += `  - Estado: ${estadoTxt}\n\n`
-    })
+    if (lista.length === 0) {
+      texto += `No hay turnos registrados en este período.\n`
+    } else {
+      lista.forEach(r => {
+        const nombreCancha = canchas.find(c => String(c.id) === String(r.cancha))?.nombre || `Cancha ${r.cancha}`
+        const estadoTxt = r.estado_pago === 'pagado' ? '[PAGADO]' : r.estado_pago === 'señado' ? '[SEÑADO]' : '[SIN PAGO]'
+        texto += `⚽ *${r.hora}hs* - ${nombreCancha}\n`
+        texto += `  👤 Jugador: *${r.nombre}*\n`
+        texto += `  🏷️ Estado: ${estadoTxt}\n\n`
+      })
+    }
     navigator.clipboard.writeText(texto)
-    alert('Lista de turnos copiada para WhatsApp')
+    alert('📋 Lista de turnos copiada para WhatsApp')
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-16">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-16 overflow-x-hidden w-full max-w-full">
       
-      {/* HEADER DASHBOARD */}
-      <header className="bg-white shadow-sm border-b border-slate-200 px-6 py-4 sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-4">
+      {/* HEADER DASHBOARD RESPONSIVE */}
+      <header className="bg-white shadow-sm border-b border-slate-200 px-3 sm:px-6 py-2.5 sm:py-3 sticky top-0 z-20 w-full overflow-hidden">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5">
           
-          <div className="flex items-center gap-3">
-            <Link to={`/${slug}`} className="text-xl font-black bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+          <div className="flex justify-between items-center">
+            <Link to={`/${slug}`} className="text-base sm:text-xl font-black bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent truncate max-w-[180px] sm:max-w-none">
               🏟️ {nombreNegocio}
             </Link>
             
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
-              isAdmin 
-                ? 'bg-purple-100 text-purple-800 border border-purple-200' 
-                : 'bg-blue-100 text-blue-800 border border-blue-200'
-            }`}>
-              {isAdmin ? '👑 Administrador' : '👤 Colaborador'}
-            </span>
+            <div className="flex items-center gap-2 sm:hidden">
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                isAdmin 
+                  ? 'bg-purple-100 text-purple-800 border border-purple-200' 
+                  : 'bg-blue-100 text-blue-800 border border-blue-200'
+              }`}>
+                {isAdmin ? '👑 Admin' : '👤 Colab'}
+              </span>
+
+              <button
+                onClick={handleUnauthorized}
+                className="bg-rose-50 text-rose-600 font-bold px-2 py-1 rounded-lg text-xs"
+                title="Cerrar sesión"
+              >
+                Salir
+              </button>
+            </div>
           </div>
 
-          {/* NAVEGACIÓN DE PESTAÑAS */}
-          <div className="flex items-center gap-2">
+          {/* NAVEGACIÓN DE PESTAÑAS (SCROLLABLE EN CELULAR) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 w-full sm:w-auto touch-pan-x">
             <button
               onClick={() => setActiveTab('turnos')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+              className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 active:scale-95 ${
                 activeTab === 'turnos'
                   ? 'bg-blue-600 text-white shadow-sm shadow-blue-200'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -370,34 +521,45 @@ export default function Dashboard() {
               📅 Turnos
             </button>
 
+            <button
+              onClick={() => setActiveTab('canchas')}
+              className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 active:scale-95 flex items-center gap-1 ${
+                activeTab === 'canchas'
+                  ? 'bg-blue-600 text-white shadow-sm shadow-blue-200'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              🏟️ Canchas ({canchas.length})
+            </button>
+
             {isAdmin && (
               <>
                 <button
                   onClick={() => setActiveTab('config')}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                  className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 active:scale-95 ${
                     activeTab === 'config'
                       ? 'bg-blue-600 text-white shadow-sm shadow-blue-200'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  ⚙️ Configuración
+                  ⚙️ Horarios & Config
                 </button>
                 <button
                   onClick={() => setActiveTab('colaboradores')}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                  className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 active:scale-95 ${
                     activeTab === 'colaboradores'
                       ? 'bg-blue-600 text-white shadow-sm shadow-blue-200'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  👥 Colaboradores
+                  👥 Equipo
                 </button>
               </>
             )}
 
             <button
               onClick={handleUnauthorized}
-              className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold px-4 py-2 rounded-xl text-sm transition-colors ml-2"
+              className="hidden sm:block bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3.5 py-2 rounded-xl text-xs transition-colors shrink-0 ml-1"
             >
               Cerrar sesión
             </button>
@@ -406,159 +568,267 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+      <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 pt-4 sm:pt-8 w-full overflow-hidden">
         
         {/* ======================================================== */}
         {/* PESTAÑA 1: GESTIÓN DE TURNOS                            */}
         {/* ======================================================== */}
         {activeTab === 'turnos' && (
-          <div className="animate-fade-in">
+          <div className="animate-fade-in space-y-5 sm:space-y-8 w-full">
             
-            {/* TARJETAS DE MÉTRICAS */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              <div className="bg-white border border-slate-100 shadow-sm rounded-2xl p-5">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Turnos Hoy</p>
-                <p className="text-3xl font-extrabold text-slate-800">{reservasHoy.length}</p>
-              </div>
-              <div className="bg-white border border-slate-100 shadow-sm rounded-2xl p-5">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Turnos Esta Semana</p>
-                <p className="text-3xl font-extrabold text-slate-800">{reservasSemana.length}</p>
-              </div>
-              <div className="bg-white border border-slate-100 shadow-sm rounded-2xl p-5">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Reservas</p>
-                <p className="text-3xl font-extrabold text-slate-800">{reservas.length}</p>
-              </div>
-              <div className="bg-white border border-slate-100 shadow-sm rounded-2xl p-5">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Monto Seña Configurado</p>
-                <p className="text-3xl font-extrabold text-emerald-600">${config.monto_sena || 100}</p>
-              </div>
-            </div>
-
-            {/* ACCIONES, FILTROS Y BUSCADOR */}
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+            {/* TARJETAS DE MÉTRICAS RÁPIDAS (ADAPTADAS A CELULAR) */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 w-full">
               
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => copiarWhatsApp(reservasHoy, 'Turnos de HOY')}
-                  className="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-emerald-200"
-                >
-                  📋 Copiar Hoy
-                </button>
-                <button
-                  onClick={() => copiarWhatsApp(reservasSemana, 'Turnos de la SEMANA')}
-                  className="bg-blue-500 hover:bg-blue-600 active:scale-95 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-blue-200"
-                >
-                  📋 Copiar Semana
-                </button>
-                <button
-                  onClick={() => setNuevaReserva({
-                    nombre: '',
-                    cancha: '1',
-                    fecha: hoy,
-                    hora: '15:00',
-                    estado_pago: 'señado',
-                    monto_pagado: config.monto_sena || 100
-                  })}
-                  className="bg-purple-600 hover:bg-purple-700 active:scale-95 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-purple-200 flex items-center gap-2"
-                >
-                  <span>➕</span> Nueva Reserva Manual
-                </button>
-              </div>
-
-              {/* FILTRO ESTADO DE PAGO Y BUSCADOR */}
-              <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-                <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold">
-                  <button
-                    onClick={() => setFilterPago('todos')}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${filterPago === 'todos' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                  >
-                    Todos
-                  </button>
-                  <button
-                    onClick={() => setFilterPago('pagado')}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${filterPago === 'pagado' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500'}`}
-                  >
-                    Pagados
-                  </button>
-                  <button
-                    onClick={() => setFilterPago('señado')}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${filterPago === 'señado' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-500'}`}
-                  >
-                    Señados
-                  </button>
-                  <button
-                    onClick={() => setFilterPago('sin_pago')}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${filterPago === 'sin_pago' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-500'}`}
-                  >
-                    Sin Pago
-                  </button>
+              <button
+                onClick={() => setFilterPeriodo('hoy')}
+                className={`text-left p-3 sm:p-5 rounded-xl sm:rounded-2xl border transition-all active:scale-95 min-w-0 ${
+                  filterPeriodo === 'hoy'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-200 ring-2 ring-blue-400'
+                    : 'bg-white border-slate-200 text-slate-800 hover:border-blue-300'
+                }`}
+              >
+                <div className="flex justify-between items-center mb-1">
+                  <p className={`text-[10px] sm:text-xs font-extrabold uppercase tracking-wider ${filterPeriodo === 'hoy' ? 'text-blue-100' : 'text-slate-400'}`}>
+                    ⚡ Turnos Hoy
+                  </p>
                 </div>
+                <p className="text-xl sm:text-3xl font-black">{reservasHoy.length}</p>
+                <p className={`text-[10px] sm:text-[11px] mt-0.5 truncate ${filterPeriodo === 'hoy' ? 'text-blue-100' : 'text-slate-500'}`}>
+                  {diaHoyTexto} {diaHoyNumero}
+                </p>
+              </button>
 
-                <div className="relative flex-1 sm:w-64">
-                  <input
-                    type="text"
-                    placeholder="Buscar jugador..."
-                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                  />
-                  <span className="absolute left-3 top-2.5 text-slate-400 text-sm">🔍</span>
+              <button
+                onClick={() => setFilterPeriodo('proximos')}
+                className={`text-left p-3 sm:p-5 rounded-xl sm:rounded-2xl border transition-all active:scale-95 min-w-0 ${
+                  filterPeriodo === 'proximos'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-200 ring-2 ring-indigo-400'
+                    : 'bg-white border-slate-200 text-slate-800 hover:border-indigo-300'
+                }`}
+              >
+                <div className="flex justify-between items-center mb-1">
+                  <p className={`text-[10px] sm:text-xs font-extrabold uppercase tracking-wider ${filterPeriodo === 'proximos' ? 'text-indigo-100' : 'text-slate-400'}`}>
+                    📅 Próximos
+                  </p>
                 </div>
+                <p className="text-xl sm:text-3xl font-black">{reservasProximos.length}</p>
+                <p className={`text-[10px] sm:text-[11px] mt-0.5 truncate ${filterPeriodo === 'proximos' ? 'text-indigo-100' : 'text-slate-500'}`}>
+                  Desde mañana
+                </p>
+              </button>
+
+              <button
+                onClick={() => setFilterPeriodo('historial')}
+                className={`text-left p-3 sm:p-5 rounded-xl sm:rounded-2xl border transition-all active:scale-95 min-w-0 ${
+                  filterPeriodo === 'historial'
+                    ? 'bg-purple-600 text-white border-purple-600 shadow-sm shadow-purple-200 ring-2 ring-purple-400'
+                    : 'bg-white border-slate-200 text-slate-800 hover:border-purple-300'
+                }`}
+              >
+                <div className="flex justify-between items-center mb-1">
+                  <p className={`text-[10px] sm:text-xs font-extrabold uppercase tracking-wider ${filterPeriodo === 'historial' ? 'text-purple-100' : 'text-slate-400'}`}>
+                    📜 Historial
+                  </p>
+                </div>
+                <p className="text-xl sm:text-3xl font-black">{reservasHistorial.length}</p>
+                <p className={`text-[10px] sm:text-[11px] mt-0.5 truncate ${filterPeriodo === 'historial' ? 'text-purple-100' : 'text-slate-500'}`}>
+                  Finalizados
+                </p>
+              </button>
+
+              <div className="bg-white border border-slate-200 shadow-sm rounded-xl sm:rounded-2xl p-3 sm:p-5 flex flex-col justify-between min-w-0">
+                <div>
+                  <p className="text-[10px] sm:text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">🏟️ Canchas / Seña</p>
+                  <p className="text-lg sm:text-2xl font-black text-emerald-600">${config.monto_sena || 100}</p>
+                </div>
+                <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5 truncate">
+                  {canchas.filter(c => c.activa !== false).length}/{canchas.length} activas
+                </p>
               </div>
 
             </div>
 
-            {/* FORMULARIO NUEVA RESERVA MANUAL */}
+            {/* SECCIÓN DESTACADA: CANCHAS DEL DÍA DE HOY */}
+            <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 text-white shadow-xl w-full overflow-hidden">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4 mb-4 border-b border-slate-700/60 pb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg sm:text-2xl">⚡</span>
+                    <h2 className="text-lg sm:text-2xl font-black tracking-tight text-white">
+                      Turnos de Hoy por Cancha
+                    </h2>
+                  </div>
+                  <p className="text-amber-300 text-xs sm:text-sm font-medium mt-0.5 capitalize">
+                    {diaHoyTexto}, {diaHoyNumero} de {mesHoyTexto} ({reservasHoy.length} turnos)
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                  <button
+                    onClick={() => copiarWhatsApp(reservasHoy, `Turnos de Hoy (${diaHoyTexto} ${diaHoyNumero})`)}
+                    className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+                  >
+                    <span>📋</span> Copiar Hoy (WhatsApp)
+                  </button>
+                  <button
+                    onClick={() => setNuevaReserva({
+                      nombre: '',
+                      cancha: canchas[0]?.id || '1',
+                      fecha: hoy,
+                      hora: businessHorarios[0] || '15:00',
+                      estado_pago: 'señado',
+                      monto_pagado: config.monto_sena || 100
+                    })}
+                    className="w-full sm:w-auto bg-purple-600 hover:bg-purple-500 active:scale-95 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+                  >
+                    <span>➕</span> Nueva Reserva Manual
+                  </button>
+                </div>
+              </div>
+
+              {/* GRILLA DE TARJETAS DE CADA CANCHA PARA HOY */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 w-full">
+                {canchas.map(cancha => {
+                  const turnosCanchaHoy = reservasHoy.filter(r => String(r.cancha) === String(cancha.id))
+                  const isActiva = cancha.activa !== false
+
+                  return (
+                    <div
+                      key={cancha.id}
+                      className="bg-slate-900/90 border border-slate-700/70 rounded-xl sm:rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between backdrop-blur-md w-full min-w-0"
+                    >
+                      <div>
+                        {/* CABECERA CANCHA */}
+                        <div className="flex justify-between items-center mb-2.5 border-b border-slate-800 pb-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-base sm:text-lg">🏟️</span>
+                            <div className="min-w-0">
+                              <h3 className="font-bold text-white text-sm sm:text-base truncate">{cancha.nombre}</h3>
+                              <span className="text-[10px] text-slate-400 font-mono">ID: {cancha.id}</span>
+                            </div>
+                          </div>
+
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
+                            isActiva
+                              ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
+                              : 'bg-rose-950/80 text-rose-300 border-rose-800'
+                          }`}>
+                            {isActiva ? '🟢 Visible' : '🔴 Pausada'}
+                          </span>
+                        </div>
+
+                        {/* LISTA DE TURNOS DE HOY DE ESTA CANCHA */}
+                        {turnosCanchaHoy.length === 0 ? (
+                          <div className="text-center py-4 text-slate-400 bg-slate-950/40 rounded-xl border border-slate-800/60 p-2.5">
+                            <p className="text-lg mb-0.5">⚽</p>
+                            <p className="text-xs font-semibold text-slate-300">Cancha disponible hoy</p>
+                            <p className="text-[10px] text-slate-500">Sin turnos reservados para hoy.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {turnosCanchaHoy.map(t => (
+                              <div
+                                key={t.id}
+                                className="bg-slate-950/80 p-2 rounded-xl border border-slate-800 flex justify-between items-center gap-1.5 hover:border-slate-700 transition-colors min-w-0"
+                              >
+                                <div className="min-w-0 flex items-center gap-1.5">
+                                  <span className="bg-blue-950 text-blue-300 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border border-blue-800 shrink-0">
+                                    🕒 {t.hora}hs
+                                  </span>
+                                  <p className="font-bold text-xs text-white truncate max-w-[100px] sm:max-w-[140px]">
+                                    {t.nombre}
+                                  </p>
+                                </div>
+
+                                <div className="shrink-0">
+                                  <select
+                                    value={t.estado_pago || (t.pagado ? 'pagado' : 'sin_pago')}
+                                    onChange={e => cambiarEstadoPago(t.id, e.target.value)}
+                                    className={`text-[10px] font-bold px-1.5 py-1 rounded-lg border cursor-pointer outline-none ${
+                                      t.estado_pago === 'pagado'
+                                        ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                                        : t.estado_pago === 'señado'
+                                        ? 'bg-amber-950 text-amber-300 border-amber-800'
+                                        : 'bg-rose-950 text-rose-300 border-rose-800'
+                                    }`}
+                                  >
+                                    <option value="pagado" className="bg-slate-900 text-emerald-300">🟢 Pagado</option>
+                                    <option value="señado" className="bg-slate-900 text-amber-300">🟡 Señado</option>
+                                    <option value="sin_pago" className="bg-slate-900 text-rose-300">🔴 Sin Pago</option>
+                                  </select>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-2.5 pt-2 border-t border-slate-800 text-[10px] text-slate-400 flex justify-between">
+                        <span>Total hoy:</span>
+                        <strong className="text-amber-300 font-bold">{turnosCanchaHoy.length} turnos</strong>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* FORMULARIO NUEVA RESERVA MANUAL (DESPLEGABLE RESPONSIVE) */}
             {nuevaReserva && (
-              <div className="bg-white p-6 shadow-md rounded-2xl border border-purple-200 mb-8 border-l-4 border-l-purple-600 flex flex-wrap gap-4 items-end animate-fade-in">
-                <div className="flex-1 min-w-[200px]">
+              <div className="bg-white p-3.5 sm:p-6 shadow-md rounded-2xl border border-purple-200 border-l-4 border-l-purple-600 flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 items-stretch sm:items-end animate-fade-in w-full">
+                <div className="flex-1 min-w-[180px]">
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nombre Jugador</label>
                   <input
-                    className="w-full border border-slate-300 p-2.5 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    className="w-full border border-slate-300 p-2 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
                     placeholder="Nombre completo"
                     value={nuevaReserva.nombre}
                     onChange={e => setNuevaReserva({ ...nuevaReserva, nombre: e.target.value })}
                   />
                 </div>
 
-                <div className="w-28">
+                <div className="w-full sm:w-40">
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cancha</label>
                   <select
-                    className="w-full border border-slate-300 p-2.5 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    className="w-full border border-slate-300 p-2 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none font-medium"
                     value={nuevaReserva.cancha}
                     onChange={e => setNuevaReserva({ ...nuevaReserva, cancha: e.target.value })}
                   >
-                    <option value="1">Cancha 1</option>
-                    <option value="2">Cancha 2</option>
+                    {canchas.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.nombre} {!c.activa ? '(Pausada)' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
-                <div className="flex-1 min-w-[150px]">
+                <div className="w-full sm:flex-1 sm:min-w-[140px]">
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fecha</label>
                   <input
                     type="date"
                     min={hoy}
-                    className="w-full border border-slate-300 p-2.5 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    className="w-full border border-slate-300 p-2 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
                     value={nuevaReserva.fecha}
                     onChange={e => setNuevaReserva({ ...nuevaReserva, fecha: e.target.value })}
                   />
                 </div>
 
-                <div className="flex-1 min-w-[120px]">
+                <div className="w-full sm:w-32">
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hora</label>
                   <select
-                    className="w-full border border-slate-300 p-2.5 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    className="w-full border border-slate-300 p-2 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none font-medium"
                     value={nuevaReserva.hora}
                     onChange={e => setNuevaReserva({ ...nuevaReserva, hora: e.target.value })}
                   >
-                    {ALLOWED_HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                    {businessHorarios.map(h => (
+                      <option key={h} value={h}>{h} hs</option>
+                    ))}
                   </select>
                 </div>
 
-                <div className="flex-1 min-w-[150px]">
+                <div className="w-full sm:flex-1 sm:min-w-[140px]">
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estado de Pago</label>
                   <select
-                    className="w-full border border-slate-300 p-2.5 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    className="w-full border border-slate-300 p-2 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-purple-500 focus:outline-none"
                     value={nuevaReserva.estado_pago}
                     onChange={e => setNuevaReserva({ ...nuevaReserva, estado_pago: e.target.value })}
                   >
@@ -568,16 +838,16 @@ export default function Dashboard() {
                   </select>
                 </div>
 
-                <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
+                <div className="flex gap-2 w-full mt-1">
                   <button
                     onClick={crearReserva}
-                    className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition-all shadow-sm shadow-emerald-200"
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold py-2.5 px-4 rounded-xl text-xs sm:text-sm transition-all shadow-sm"
                   >
                     Confirmar Reserva
                   </button>
                   <button
                     onClick={() => setNuevaReserva(null)}
-                    className="flex-1 md:flex-none bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium px-4 py-2.5 rounded-xl text-sm transition-colors"
+                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm transition-colors"
                   >
                     Cancelar
                   </button>
@@ -585,15 +855,318 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* TABLA PRINCIPAL DE RESERVAS */}
-            <div className="bg-white shadow-sm border border-slate-100 rounded-3xl overflow-hidden mb-8">
+            {/* BARRA DE FILTROS: PERÍODO, CANCHAS, PAGO Y BUSCADOR */}
+            <div className="bg-white p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 space-y-3 w-full overflow-hidden">
+              
+              {/* FILA 1: FILTROS DE PERÍODO TEMPORAL (SCROLLABLE) */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 border-b border-slate-100 pb-2.5">
+                <div className="overflow-x-auto no-scrollbar py-0.5 w-full touch-pan-x">
+                  <div className="flex items-center gap-1.5 whitespace-nowrap">
+                    <button
+                      onClick={() => { setFilterPeriodo('hoy'); setCurrentPage(1); }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 ${
+                        filterPeriodo === 'hoy'
+                          ? 'bg-blue-600 text-white shadow-sm shadow-blue-200'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      ⚡ Hoy ({reservasHoy.length})
+                    </button>
+
+                    <button
+                      onClick={() => { setFilterPeriodo('proximos'); setCurrentPage(1); }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 ${
+                        filterPeriodo === 'proximos'
+                          ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      📅 Próximos ({reservasProximos.length})
+                    </button>
+
+                    <button
+                      onClick={() => { setFilterPeriodo('historial'); setCurrentPage(1); }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 ${
+                        filterPeriodo === 'historial'
+                          ? 'bg-purple-600 text-white shadow-sm shadow-purple-200'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      📜 Historial ({reservasHistorial.length})
+                    </button>
+
+                    <button
+                      onClick={() => { setFilterPeriodo('todos'); setCurrentPage(1); }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 ${
+                        filterPeriodo === 'todos'
+                          ? 'bg-slate-800 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      🌐 Todos ({reservas.length})
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end">
+                  <button
+                    onClick={() => copiarWhatsApp(reservasSemana, 'Turnos de la SEMANA')}
+                    className="w-full sm:w-auto bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1"
+                  >
+                    📋 Copiar Semana
+                  </button>
+                </div>
+              </div>
+
+              {/* FILA 2: FILTRO POR CANCHA Y ESTADO DE PAGO */}
+              <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+                
+                {/* FILTRO POR CANCHA (SCROLLABLE) */}
+                <div className="overflow-x-auto no-scrollbar py-0.5 w-full touch-pan-x">
+                  <div className="flex items-center gap-1.5 whitespace-nowrap">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                      Cancha:
+                    </span>
+                    <button
+                      onClick={() => { setFilterCancha('todas'); setCurrentPage(1); }}
+                      className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 ${
+                        filterCancha === 'todas'
+                          ? 'bg-slate-800 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      🏟️ Todas
+                    </button>
+                    {canchas.map(c => {
+                      const totalEnCancha = reservas.filter(r => String(r.cancha) === String(c.id)).length
+                      return (
+                        <button
+                          key={c.id}
+                          onClick={() => { setFilterCancha(c.id); setCurrentPage(1); }}
+                          className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 ${
+                            String(filterCancha) === String(c.id)
+                              ? 'bg-blue-600 text-white shadow-sm'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {c.nombre} ({totalEnCancha})
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* FILTRO PAGO Y BUSCADOR */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
+                  <div className="flex bg-slate-100 p-0.5 rounded-xl text-[11px] font-semibold justify-between sm:justify-start">
+                    <button
+                      onClick={() => { setFilterPago('todos'); setCurrentPage(1); }}
+                      className={`px-2 py-1 rounded-lg transition-all text-center flex-1 sm:flex-none ${filterPago === 'todos' ? 'bg-white text-slate-800 shadow-sm font-bold' : 'text-slate-500'}`}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      onClick={() => { setFilterPago('pagado'); setCurrentPage(1); }}
+                      className={`px-2 py-1 rounded-lg transition-all text-center flex-1 sm:flex-none ${filterPago === 'pagado' ? 'bg-emerald-500 text-white shadow-sm font-bold' : 'text-slate-500'}`}
+                    >
+                      Pagados
+                    </button>
+                    <button
+                      onClick={() => { setFilterPago('señado'); setCurrentPage(1); }}
+                      className={`px-2 py-1 rounded-lg transition-all text-center flex-1 sm:flex-none ${filterPago === 'señado' ? 'bg-amber-500 text-white shadow-sm font-bold' : 'text-slate-500'}`}
+                    >
+                      Señados
+                    </button>
+                    <button
+                      onClick={() => { setFilterPago('sin_pago'); setCurrentPage(1); }}
+                      className={`px-2 py-1 rounded-lg transition-all text-center flex-1 sm:flex-none ${filterPago === 'sin_pago' ? 'bg-rose-500 text-white shadow-sm font-bold' : 'text-slate-500'}`}
+                    >
+                      Sin Pago
+                    </button>
+                  </div>
+
+                  <div className="relative w-full sm:w-52">
+                    <input
+                      type="text"
+                      placeholder="Buscar jugador..."
+                      className="w-full pl-7 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                      value={searchTerm}
+                      onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                    />
+                    <span className="absolute left-2 top-2 text-slate-400 text-xs">🔍</span>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* ======================================================== */}
+            {/* VISTA MÓVIL: TARJETAS DE RESERVAS (PANTALLAS PEQUEÑAS)  */}
+            {/* ======================================================== */}
+            <div className="block md:hidden space-y-2.5 w-full overflow-hidden">
+              {loading ? (
+                <div className="bg-white p-6 rounded-2xl text-center text-slate-400 shadow-sm border border-slate-100 text-xs">
+                  Cargando reservas...
+                </div>
+              ) : reservasPaginadas.length === 0 ? (
+                <div className="bg-white p-6 rounded-2xl text-center text-slate-400 shadow-sm border border-slate-100 text-xs">
+                  No se encontraron reservas con los filtros aplicados ({filterPeriodo.toUpperCase()}).
+                </div>
+              ) : (
+                reservasPaginadas.map(r => {
+                  const nombreCancha = canchas.find(c => String(c.id) === String(r.cancha))?.nombre || `Cancha ${r.cancha}`
+                  const isEdicionActual = editando?.id === r.id
+
+                  if (isEdicionActual) {
+                    return (
+                      <div key={r.id} className="bg-white p-3.5 rounded-2xl border-2 border-blue-500 shadow-md space-y-2.5 animate-fade-in w-full">
+                        <p className="text-xs font-bold text-blue-600 uppercase">Editando Reserva</p>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Nombre</label>
+                          <input
+                            className="w-full border border-slate-300 p-2 rounded-xl text-xs font-medium"
+                            value={editando.nombre}
+                            onChange={e => setEditando({ ...editando, nombre: e.target.value })}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Cancha</label>
+                            <select
+                              className="w-full border border-slate-300 p-2 rounded-xl text-xs font-medium"
+                              value={editando.cancha}
+                              onChange={e => setEditando({ ...editando, cancha: e.target.value })}
+                            >
+                              {canchas.map(c => (
+                                <option key={c.id} value={c.id}>{c.nombre}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Hora</label>
+                            <select
+                              className="w-full border border-slate-300 p-2 rounded-xl text-xs font-medium"
+                              value={editando.hora}
+                              onChange={e => setEditando({ ...editando, hora: e.target.value })}
+                            >
+                              {businessHorarios.map(h => <option key={h} value={h}>{h} hs</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Fecha</label>
+                          <input
+                            type="date"
+                            className="w-full border border-slate-300 p-2 rounded-xl text-xs"
+                            value={editando.fecha}
+                            onChange={e => setEditando({ ...editando, fecha: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Estado de Pago</label>
+                          <select
+                            className="w-full border border-slate-300 p-2 rounded-xl text-xs font-bold"
+                            value={editando.estado_pago}
+                            onChange={e => setEditando({ ...editando, estado_pago: e.target.value })}
+                          >
+                            <option value="pagado">🟢 Pagado Total</option>
+                            <option value="señado">🟡 Señado</option>
+                            <option value="sin_pago">🔴 Sin Pago</option>
+                          </select>
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            onClick={guardarEdicion}
+                            className="flex-1 bg-emerald-600 text-white font-bold py-2 rounded-xl text-xs"
+                          >
+                            Guardar
+                          </button>
+                          <button
+                            onClick={() => setEditando(null)}
+                            className="bg-slate-200 text-slate-700 font-medium py-2 px-3 rounded-xl text-xs"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div
+                      key={r.id}
+                      className="bg-white p-3 rounded-xl sm:rounded-2xl shadow-sm border border-slate-100 space-y-2 transition-all w-full min-w-0"
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="font-bold text-slate-900 text-xs sm:text-sm truncate">{r.nombre}</h4>
+                            {r.fecha === hoy && (
+                              <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 text-[9px] font-extrabold rounded-full shrink-0">
+                                HOY
+                              </span>
+                            )}
+                          </div>
+                          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium mt-0.5 truncate">
+                            🏟️ {nombreCancha}
+                          </span>
+                        </div>
+
+                        <select
+                          value={r.estado_pago || (r.pagado ? 'pagado' : 'sin_pago')}
+                          onChange={e => cambiarEstadoPago(r.id, e.target.value)}
+                          className={`text-[10px] font-bold px-2 py-1 rounded-lg border cursor-pointer outline-none shrink-0 ${
+                            r.estado_pago === 'pagado'
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              : r.estado_pago === 'señado'
+                              ? 'bg-amber-100 text-amber-800 border-amber-300'
+                              : 'bg-rose-100 text-rose-800 border-rose-300'
+                          }`}
+                        >
+                          <option value="pagado">🟢 Pagado</option>
+                          <option value="señado">🟡 Señado</option>
+                          <option value="sin_pago">🔴 Sin Pago</option>
+                        </select>
+                      </div>
+
+                      <div className="bg-slate-50 p-2 rounded-xl flex items-center justify-between text-xs text-slate-700">
+                        <span className="font-medium capitalize text-[11px] sm:text-xs truncate">
+                          📅 {formatearTurno(r.fecha, r.hora)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-1 border-t border-slate-50">
+                        <button
+                          onClick={() => setEditando(r)}
+                          className="bg-blue-50 text-blue-700 hover:bg-blue-100 px-2.5 py-1 rounded-lg text-xs font-semibold"
+                        >
+                          ✏️ Editar
+                        </button>
+                        <button
+                          onClick={() => eliminarReserva(r.id)}
+                          className="bg-rose-50 text-rose-700 hover:bg-rose-100 px-2.5 py-1 rounded-lg text-xs font-semibold"
+                        >
+                          🗑️ Eliminar
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* ======================================================== */}
+            {/* VISTA ESCRITORIO: TABLA PRINCIPAL DE RESERVAS (MD+)     */}
+            {/* ======================================================== */}
+            <div className="hidden md:block bg-white shadow-sm border border-slate-100 rounded-3xl overflow-hidden w-full">
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse whitespace-nowrap min-w-[850px]">
+                <table className="w-full text-left border-collapse whitespace-nowrap min-w-[800px]">
                   <thead className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-100">
                     <tr>
                       <th className="px-6 py-4">Jugador</th>
                       <th className="px-6 py-4 text-center">Cancha</th>
-                      <th className="px-6 py-4">Turno</th>
+                      <th className="px-6 py-4">Turno (Fecha y Hora)</th>
                       <th className="px-6 py-4 text-center">Estado de Pago</th>
                       <th className="px-6 py-4 text-center">Acciones</th>
                     </tr>
@@ -608,7 +1181,7 @@ export default function Dashboard() {
                     ) : reservasPaginadas.length === 0 ? (
                       <tr>
                         <td colSpan="5" className="px-6 py-12 text-center text-slate-400">
-                          No se encontraron reservas con los filtros aplicados.
+                          No se encontraron reservas con los filtros aplicados ({filterPeriodo.toUpperCase()}).
                         </td>
                       </tr>
                     ) : (
@@ -624,7 +1197,14 @@ export default function Dashboard() {
                                 onChange={e => setEditando({ ...editando, nombre: e.target.value })}
                               />
                             ) : (
-                              <span className="font-bold text-slate-800">{r.nombre}</span>
+                              <div>
+                                <span className="font-bold text-slate-800">{r.nombre}</span>
+                                {r.fecha === hoy && (
+                                  <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 text-[10px] font-extrabold rounded-full">
+                                    HOY
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </td>
 
@@ -632,16 +1212,19 @@ export default function Dashboard() {
                           <td className="px-6 py-4 text-center">
                             {editando?.id === r.id ? (
                               <select
-                                className="border border-slate-300 p-2 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                className="border border-slate-300 p-2 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium"
                                 value={editando.cancha}
                                 onChange={e => setEditando({ ...editando, cancha: e.target.value })}
                               >
-                                <option value="1">Cancha 1</option>
-                                <option value="2">Cancha 2</option>
+                                {canchas.map(c => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.nombre}
+                                  </option>
+                                ))}
                               </select>
                             ) : (
                               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
-                                Cancha {r.cancha}
+                                🏟️ {canchas.find(c => String(c.id) === String(r.cancha))?.nombre || `Cancha ${r.cancha}`}
                               </span>
                             )}
                           </td>
@@ -661,11 +1244,13 @@ export default function Dashboard() {
                                   value={editando.hora}
                                   onChange={e => setEditando({ ...editando, hora: e.target.value })}
                                 >
-                                  {ALLOWED_HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                                  {businessHorarios.map(h => <option key={h} value={h}>{h} hs</option>)}
                                 </select>
                               </div>
                             ) : (
-                              <span>{formatearTurno(r.fecha, r.hora)}</span>
+                              <span className="font-medium text-slate-700">
+                                {formatearTurno(r.fecha, r.hora)}
+                              </span>
                             )}
                           </td>
 
@@ -749,11 +1334,11 @@ export default function Dashboard() {
 
             {/* PAGINACIÓN */}
             {totalPages > 1 && (
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center pt-2 w-full">
                 <button
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
-                  className="px-4 py-2 bg-white border border-slate-200 shadow-sm rounded-xl text-slate-600 text-sm font-medium disabled:opacity-40 hover:bg-slate-50 transition-colors"
+                  className="px-3 py-1.5 bg-white border border-slate-200 shadow-sm rounded-xl text-slate-600 text-xs sm:text-sm font-bold disabled:opacity-40 hover:bg-slate-50 transition-colors"
                 >
                   ← Anterior
                 </button>
@@ -763,7 +1348,7 @@ export default function Dashboard() {
                 <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}
-                  className="px-4 py-2 bg-white border border-slate-200 shadow-sm rounded-xl text-slate-600 text-sm font-medium disabled:opacity-40 hover:bg-slate-50 transition-colors"
+                  className="px-3 py-1.5 bg-white border border-slate-200 shadow-sm rounded-xl text-slate-600 text-xs sm:text-sm font-bold disabled:opacity-40 hover:bg-slate-50 transition-colors"
                 >
                   Siguiente →
                 </button>
@@ -774,105 +1359,289 @@ export default function Dashboard() {
         )}
 
         {/* ======================================================== */}
+        {/* PESTAÑA: GESTIÓN DE CANCHAS Y DISPONIBILIDAD (ADMIN Y COLABORADOR) */}
+        {/* ======================================================== */}
+        {activeTab === 'canchas' && (
+          <div className="max-w-4xl mx-auto space-y-5 animate-fade-in w-full">
+            
+            <div className="bg-white p-3.5 sm:p-7 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 w-full overflow-hidden">
+              <div className="flex flex-wrap justify-between items-center gap-2.5 mb-3">
+                <div>
+                  <h2 className="text-lg sm:text-2xl font-black text-slate-800 flex items-center gap-2">
+                    <span>🏟️</span> Canchas y Disponibilidad
+                  </h2>
+                  <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
+                    Controlá qué canchas están visibles y disponibles para que los clientes reserven turnos online.
+                  </p>
+                </div>
+
+                <div className="bg-blue-50 text-blue-800 text-xs font-bold px-3 py-1 rounded-xl border border-blue-200">
+                  Total: {canchas.length}
+                </div>
+              </div>
+
+              {/* AVISO DE ROLES Y PERMISOS */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl sm:rounded-2xl p-3 sm:p-4 mb-4 text-xs text-slate-600 flex items-start gap-2">
+                <span className="text-base sm:text-lg">ℹ️</span>
+                <div>
+                  <p className="font-bold text-slate-700 mb-0.5">Gestión Operativa de Canchas</p>
+                  <p>
+                    Tanto colaboradores como administradores pueden <strong>activar o pausar</strong> la disponibilidad de cada cancha en cualquier momento (por lluvia, mantenimiento o refacciones).
+                  </p>
+                </div>
+              </div>
+
+              {/* LISTA DE TARJETAS DE CANCHAS */}
+              {canchas.length === 0 ? (
+                <div className="text-center py-10 text-slate-400">
+                  <p className="text-2xl mb-1">🏟️</p>
+                  <p className="font-semibold text-xs sm:text-sm">Cargando canchas del negocio...</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 w-full">
+                  {canchas.map(c => {
+                    const isActiva = c.activa !== false && c.disponible !== false
+                    const isToggling = togglingCanchaId === c.id
+
+                    return (
+                      <div
+                        key={c.id}
+                        className={`p-3.5 sm:p-5 rounded-2xl border transition-all duration-200 flex flex-col justify-between w-full min-w-0 ${
+                          isActiva
+                            ? 'bg-white border-emerald-200 shadow-sm shadow-emerald-50'
+                            : 'bg-slate-50 border-slate-200 opacity-90'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex justify-between items-start mb-2.5">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className={`w-8 sm:w-10 h-8 sm:h-10 rounded-xl flex items-center justify-center text-sm sm:text-lg font-bold shrink-0 ${
+                                isActiva ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                              }`}>
+                                🏟️
+                              </div>
+                              <div className="min-w-0">
+                                <h3 className="font-bold text-slate-800 text-xs sm:text-base truncate">{c.nombre}</h3>
+                                <span className="text-[9px] sm:text-xs text-slate-400 font-mono">ID: {c.id}</span>
+                              </div>
+                            </div>
+
+                            <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full border shrink-0 ${
+                              isActiva
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                            }`}>
+                              {isActiva ? '🟢 Disponible' : '🔴 Pausada'}
+                            </span>
+                          </div>
+
+                          <p className="text-[11px] sm:text-xs text-slate-500 mb-3">
+                            {isActiva
+                              ? 'Visible para clientes en la página web. Permite seleccionar y reservar turnos online.'
+                              : 'Oculta para clientes. No aparecerá en el selector de turnos online hasta que se reactive.'}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={isToggling}
+                          onClick={() => toggleDisponibilidadCancha(c.id, isActiva)}
+                          className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 border ${
+                            isActiva
+                              ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                              : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm'
+                          } disabled:opacity-50`}
+                        >
+                          {isToggling ? (
+                            'Guardando...'
+                          ) : isActiva ? (
+                            <>
+                              <span>⏸️</span> Pausar Cancha
+                            </>
+                          ) : (
+                            <>
+                              <span>▶️</span> Habilitar Cancha
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+            </div>
+
+          </div>
+        )}
+
+        {/* ======================================================== */}
         {/* PESTAÑA 2: CONFIGURACIÓN DEL NEGOCIO (SOLO ADMIN)       */}
         {/* ======================================================== */}
         {activeTab === 'config' && isAdmin && (
-          <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-slate-100 animate-fade-in">
+          <div className="max-w-3xl mx-auto bg-white p-3.5 sm:p-7 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 animate-fade-in w-full overflow-hidden">
             
-            <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-2">
+            <h2 className="text-lg sm:text-2xl font-black text-slate-800 mb-1 flex items-center gap-2">
               <span>⚙️</span> Configuración de {nombreNegocio}
             </h2>
+            <p className="text-slate-500 text-xs sm:text-sm mb-5">
+              Ajustá datos de contacto, valor de la seña y los horarios de atención y turnos disponibles para tu complejo.
+            </p>
 
             {configSaved && (
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl mb-6 text-sm font-semibold animate-fade-in">
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2.5 rounded-xl mb-5 text-xs sm:text-sm font-semibold animate-fade-in">
                 ✅ Configuración guardada correctamente.
               </div>
             )}
 
-            <form onSubmit={guardarConfig} className="space-y-6">
+            <form onSubmit={guardarConfig} className="space-y-4 sm:space-y-6 w-full">
               
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
                   Nombre de la Cancha / Complejo
                 </label>
                 <input
                   type="text"
-                  className="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium"
+                  className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium text-xs sm:text-base"
                   value={config.nombre || ''}
                   onChange={e => setConfig({ ...config, nombre: e.target.value })}
                   required
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
                     Teléfono / WhatsApp de Contacto
                   </label>
                   <input
                     type="text"
-                    className="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium"
+                    className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium text-xs sm:text-base"
                     value={config.telefono || ''}
                     onChange={e => setConfig({ ...config, telefono: e.target.value })}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
                     Ubicación / Dirección del Complejo
                   </label>
                   <input
                     type="text"
-                    className="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium"
+                    className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium text-xs sm:text-base"
                     value={config.direccion || ''}
                     onChange={e => setConfig({ ...config, direccion: e.target.value })}
                   />
                 </div>
               </div>
 
+              {/* SECCIÓN: CONFIGURACIÓN DE HORARIOS DE ATENCIÓN */}
+              <div className="p-3.5 sm:p-5 rounded-2xl bg-slate-50 border border-slate-200 w-full overflow-hidden">
+                <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      🕒 Horarios de Atención / Turnos Disponibles
+                    </label>
+                    <p className="text-[10px] sm:text-xs text-slate-500">
+                      Marcá qué horas están disponibles para reservar en tus canchas.
+                    </p>
+                  </div>
+
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                    {(config.horarios || []).length} activos
+                  </span>
+                </div>
+
+                {/* PRESETS RÁPIDOS */}
+                <div className="flex flex-wrap gap-1 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => aplicarPresetHorarios('tarde_noche')}
+                    className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
+                  >
+                    🌆 Tarde/Noche
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => aplicarPresetHorarios('completo')}
+                    className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
+                  >
+                    🌅 Completo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => aplicarPresetHorarios('nocturno')}
+                    className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
+                  >
+                    🌙 Nocturno
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => aplicarPresetHorarios('matutino_tarde')}
+                    className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
+                  >
+                    ☀️ Día
+                  </button>
+                </div>
+
+                {/* CHIPS DE HORARIOS ACTIVOS */}
+                <div className="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-8 gap-1.5 sm:gap-2 w-full">
+                  {ALL_POSSIBLE_HOURS.map(hora => {
+                    const isSelected = (config.horarios || []).includes(hora)
+                    return (
+                      <button
+                        key={hora}
+                        type="button"
+                        onClick={() => toggleHorarioSlot(hora)}
+                        className={`py-2 px-1 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-0.5 active:scale-95 min-h-[36px] w-full truncate ${
+                          isSelected
+                            ? 'bg-blue-600 text-white shadow-sm shadow-blue-200 ring-1 ring-blue-400'
+                            : 'bg-white text-slate-400 hover:text-slate-600 border border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        {isSelected && <span>✓</span>}
+                        <span>{hora}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
                   Monto de la Seña por Reserva ($ ARS)
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-3 text-slate-400 font-bold">$</span>
+                  <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold">$</span>
                   <input
                     type="number"
                     min="1"
-                    className="w-full border border-slate-200 pl-8 pr-4 py-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-bold"
+                    className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-bold text-xs sm:text-base"
                     value={config.monto_sena || 100}
                     onChange={e => setConfig({ ...config, monto_sena: e.target.value })}
                     required
                   />
                 </div>
-                <p className="text-xs text-slate-400 mt-1.5">
-                  Este es el importe que se le cobrará al cliente por Mercado Pago al reservar.
-                </p>
               </div>
 
-              <div className="pt-4 border-t border-slate-100">
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+              <div className="pt-3 border-t border-slate-100">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
                   Access Token de Mercado Pago (Privado)
                 </label>
                 <input
                   type="password"
                   placeholder={config.tiene_mp_token ? "•••••••••••••••••••• (Ya configurado)" : "APP_USR-..."}
-                  className="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-mono text-sm"
+                  className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-mono text-xs"
                   value={config.mp_access_token || ''}
                   onChange={e => setConfig({ ...config, mp_access_token: e.target.value })}
                 />
-                <p className="text-xs text-slate-400 mt-1.5">
-                  {config.tiene_mp_token
-                    ? "✅ Tu cuenta de Mercado Pago está vinculada. Si querés cambiarla, ingresá el nuevo token."
-                    : "⚠️ No has configurado tu Access Token. Se usará el token general por defecto."}
-                </p>
               </div>
 
               <button
                 type="submit"
-                className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-xl transition-all shadow-sm shadow-blue-200"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-xl transition-all shadow-sm text-xs sm:text-base"
               >
-                Guardar Cambios
+                Guardar Configuración y Horarios
               </button>
 
             </form>
@@ -884,30 +1653,30 @@ export default function Dashboard() {
         {/* PESTAÑA 3: GESTIÓN DE COLABORADORES (SOLO ADMIN)        */}
         {/* ======================================================== */}
         {activeTab === 'colaboradores' && isAdmin && (
-          <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
+          <div className="max-w-4xl mx-auto space-y-5 animate-fade-in w-full">
             
             {/* AGREGAR COLABORADOR */}
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-              <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-2">
+            <div className="bg-white p-3.5 sm:p-7 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 w-full overflow-hidden">
+              <h2 className="text-lg sm:text-2xl font-black text-slate-800 mb-1 flex items-center gap-2">
                 <span>➕</span> Agregar Nuevo Colaborador
               </h2>
-              <p className="text-slate-500 text-sm mb-6">
-                Los colaboradores pueden ver turnos, crear reservas manuales y cambiar estados de pago, pero no pueden modificar tu configuración ni tus cobros.
+              <p className="text-slate-500 text-xs sm:text-sm mb-4">
+                Los colaboradores pueden ver turnos, crear reservas manuales y cambiar estados de pago.
               </p>
 
               {colabMsg && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl mb-6 text-sm font-semibold">
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2.5 rounded-xl mb-4 text-xs sm:text-sm font-semibold">
                   {colabMsg}
                 </div>
               )}
 
-              <form onSubmit={crearColaborador} className="grid sm:grid-cols-3 gap-4 items-end">
+              <form onSubmit={crearColaborador} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end w-full">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nombre</label>
                   <input
                     type="text"
                     placeholder="ej: Juan Pérez"
-                    className="w-full border border-slate-200 p-2.5 rounded-xl bg-slate-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="w-full border border-slate-200 p-2 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     value={nuevoColab.nombre}
                     onChange={e => setNuevoColab({ ...nuevoColab, nombre: e.target.value })}
                     required
@@ -919,7 +1688,7 @@ export default function Dashboard() {
                   <input
                     type="text"
                     placeholder="ej: juan o juan@cancha.com"
-                    className="w-full border border-slate-200 p-2.5 rounded-xl bg-slate-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="w-full border border-slate-200 p-2 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     value={nuevoColab.email}
                     onChange={e => setNuevoColab({ ...nuevoColab, email: e.target.value })}
                     required
@@ -931,7 +1700,7 @@ export default function Dashboard() {
                   <input
                     type="password"
                     placeholder="••••••••"
-                    className="w-full border border-slate-200 p-2.5 rounded-xl bg-slate-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="w-full border border-slate-200 p-2 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     value={nuevoColab.password}
                     onChange={e => setNuevoColab({ ...nuevoColab, password: e.target.value })}
                     required
@@ -941,7 +1710,7 @@ export default function Dashboard() {
                 <div className="sm:col-span-3">
                   <button
                     type="submit"
-                    className="bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition-all shadow-sm shadow-purple-200"
+                    className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold px-5 py-2.5 rounded-xl text-xs sm:text-sm transition-all shadow-sm"
                   >
                     Crear Colaborador
                   </button>
@@ -950,28 +1719,28 @@ export default function Dashboard() {
             </div>
 
             {/* LISTADO DE COLABORADORES */}
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-              <h3 className="text-xl font-bold text-slate-800 mb-6">
+            <div className="bg-white p-3.5 sm:p-7 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 w-full overflow-hidden">
+              <h3 className="text-base sm:text-xl font-bold text-slate-800 mb-3 sm:mb-4">
                 Equipo de Trabajo ({colaboradores.length})
               </h3>
 
               {colaboradores.length === 0 ? (
-                <p className="text-slate-400 text-sm italic">
+                <p className="text-slate-400 text-xs sm:text-sm italic">
                   Aún no has agregado colaboradores a tu equipo.
                 </p>
               ) : (
                 <div className="divide-y divide-slate-100">
                   {colaboradores.map(c => (
-                    <div key={c.id} className="py-4 flex justify-between items-center gap-4">
-                      <div>
-                        <p className="font-bold text-slate-800">{c.nombre}</p>
-                        <p className="text-xs text-slate-500">{c.email} • <span className="capitalize text-purple-600 font-semibold">{c.rol}</span></p>
+                    <div key={c.id} className="py-3 flex justify-between items-center gap-2">
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-800 text-xs sm:text-sm truncate">{c.nombre}</p>
+                        <p className="text-[11px] text-slate-500 truncate">{c.email} • <span className="capitalize text-purple-600 font-semibold">{c.rol}</span></p>
                       </div>
 
                       {c.rol !== 'admin' && (
                         <button
                           onClick={() => eliminarColaborador(c.id)}
-                          className="text-xs text-rose-600 hover:bg-rose-50 px-3 py-1.5 rounded-lg font-semibold transition-colors border border-rose-100"
+                          className="text-[11px] text-rose-600 hover:bg-rose-50 px-2.5 py-1 rounded-lg font-semibold transition-colors border border-rose-100 shrink-0"
                         >
                           Eliminar
                         </button>

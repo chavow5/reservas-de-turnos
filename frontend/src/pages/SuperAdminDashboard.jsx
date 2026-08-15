@@ -42,6 +42,7 @@ export default function SuperAdminDashboard() {
     monto_sena: 100,
     precio_mensual: 25000,
     dia_vencimiento: 10,
+    cantidad_canchas: 2,
     mp_access_token: '',
     admin_nombre: '',
     admin_email: '',
@@ -308,6 +309,15 @@ export default function SuperAdminDashboard() {
       precio_mensual: negocio.precio_mensual || 25000,
       dia_vencimiento: negocio.dia_vencimiento || 10,
       estado_suscripcion: negocio.estado_suscripcion || 'al_dia',
+      canchas: negocio.canchas && Array.isArray(negocio.canchas) && negocio.canchas.length > 0
+        ? negocio.canchas
+        : [
+            { id: '1', nombre: 'Cancha 1', activa: true },
+            { id: '2', nombre: 'Cancha 2', activa: true }
+          ],
+      horarios: negocio.horarios || [
+        '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00'
+      ],
       modo_prueba: !!negocio.modo_prueba,
       mp_access_token: negocio.mp_access_token || ''
     })
@@ -409,6 +419,7 @@ export default function SuperAdminDashboard() {
           monto_sena: 100,
           precio_mensual: 25000,
           dia_vencimiento: 10,
+          cantidad_canchas: 2,
           mp_access_token: '',
           admin_nombre: '',
           admin_email: '',
@@ -582,6 +593,7 @@ export default function SuperAdminDashboard() {
                     <tr>
                       <th className="px-6 py-4">Negocio / Contacto</th>
                       <th className="px-6 py-4">URL / Slug</th>
+                      <th className="px-6 py-4 text-center">Canchas</th>
                       <th className="px-6 py-4 text-center">Abono Mensual</th>
                       <th className="px-6 py-4 text-center">Cuota del Mes</th>
                       <th className="px-6 py-4 text-center">Modo Demo</th>
@@ -593,13 +605,13 @@ export default function SuperAdminDashboard() {
                   <tbody className="divide-y divide-slate-800 text-sm">
                     {loading ? (
                       <tr>
-                        <td colSpan="8" className="px-6 py-12 text-center text-slate-500">
+                        <td colSpan="9" className="px-6 py-12 text-center text-slate-500">
                           Cargando lista de negocios...
                         </td>
                       </tr>
                     ) : filteredNegocios.length === 0 ? (
                       <tr>
-                        <td colSpan="8" className="px-6 py-12 text-center text-slate-500">
+                        <td colSpan="9" className="px-6 py-12 text-center text-slate-500">
                           No se encontraron negocios con ese filtro.
                         </td>
                       </tr>
@@ -638,6 +650,16 @@ export default function SuperAdminDashboard() {
                           <td className="px-6 py-4">
                             <span className="font-mono text-xs bg-slate-800 text-amber-300 px-2.5 py-1 rounded-lg border border-slate-700">
                               /{n.slug}
+                            </span>
+                          </td>
+
+                          {/* CANCHAS */}
+                          <td className="px-6 py-4 text-center">
+                            <span
+                              className="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold bg-slate-800 text-amber-300 border border-slate-700 cursor-default"
+                              title={(n.canchas || []).map(c => `${c.nombre} (${c.activa !== false ? 'Activa' : 'Pausada'})`).join(', ')}
+                            >
+                              🏟️ {(n.canchas || []).length} { (n.canchas || []).length === 1 ? 'cancha' : 'canchas' }
                             </span>
                           </td>
 
@@ -1169,6 +1191,43 @@ export default function SuperAdminDashboard() {
                 </div>
               </div>
 
+              {/* SELECTOR DE CANTIDAD DE CANCHAS INICIALES */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider mb-2">
+                  🏟️ Cantidad de Canchas a Agregar
+                </label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max="30"
+                    className="w-24 border border-slate-700 p-2.5 rounded-xl bg-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400 text-amber-300 font-black text-center text-lg"
+                    value={nuevoNegocio.cantidad_canchas || 2}
+                    onChange={e => setNuevoNegocio({ ...nuevoNegocio, cantidad_canchas: Math.max(1, parseInt(e.target.value) || 1) })}
+                    required
+                  />
+                  <div className="flex gap-1.5 flex-wrap">
+                    {[1, 2, 3, 4, 5, 6].map(num => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setNuevoNegocio({ ...nuevoNegocio, cantidad_canchas: num })}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                          (nuevoNegocio.cantidad_canchas || 2) === num
+                            ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        {num} {num === 1 ? 'cancha' : 'canchas'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">
+                  Se generarán automáticamente: <strong className="text-slate-200">{Array.from({ length: nuevoNegocio.cantidad_canchas || 2 }, (_, i) => `Cancha ${i + 1}`).join(', ')}</strong>.
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Abono Mensual ($)</label>
@@ -1419,6 +1478,75 @@ export default function SuperAdminDashboard() {
                   value={editandoNegocio.direccion || ''}
                   onChange={e => setEditandoNegocio({ ...editandoNegocio, direccion: e.target.value })}
                 />
+              </div>
+
+              {/* GESTIÓN DE CANCHAS (SOLO SUPERADMIN AGREGA Y ELIMINA) */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div className="flex justify-between items-center mb-3">
+                  <div>
+                    <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider">
+                      🏟️ Canchas del Negocio ({(editandoNegocio.canchas || []).length})
+                    </label>
+                    <p className="text-[11px] text-slate-400">Podés agregar, renombrar o eliminar canchas de este negocio.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = editandoNegocio.canchas || []
+                      const nextId = String(current.length + 1)
+                      setEditandoNegocio({
+                        ...editandoNegocio,
+                        canchas: [
+                          ...current,
+                          { id: nextId, nombre: `Cancha ${nextId}`, activa: true }
+                        ]
+                      })
+                    }}
+                    className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1 active:scale-95"
+                  >
+                    <span>➕</span> Agregar Cancha
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                  {(editandoNegocio.canchas || []).map((c, index) => (
+                    <div key={c.id || index} className="flex items-center gap-2 bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-xs font-mono font-bold text-slate-500 w-7 text-center">#{c.id}</span>
+                      <input
+                        type="text"
+                        className="flex-1 bg-slate-950 border border-slate-700 px-3 py-1.5 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-400 font-medium"
+                        value={c.nombre || ''}
+                        onChange={e => {
+                          const updated = [...(editandoNegocio.canchas || [])]
+                          updated[index] = { ...updated[index], nombre: e.target.value }
+                          setEditandoNegocio({ ...editandoNegocio, canchas: updated })
+                        }}
+                        placeholder={`Cancha ${index + 1}`}
+                      />
+                      <span className={`text-[10px] px-2 py-1 rounded font-bold ${
+                        c.activa !== false ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'
+                      }`}>
+                        {c.activa !== false ? 'Disponible' : 'Pausada'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const current = editandoNegocio.canchas || []
+                          if (current.length <= 1) {
+                            alert('El negocio debe tener al menos 1 cancha.')
+                            return
+                          }
+                          const updated = current.filter((_, i) => i !== index)
+                          setEditandoNegocio({ ...editandoNegocio, canchas: updated })
+                        }}
+                        className="text-xs text-rose-400 hover:bg-rose-950/80 p-1.5 rounded-lg transition-colors border border-rose-800/40"
+                        title="Eliminar esta cancha"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* CREDENCIAL DE MERCADO PAGO */}
