@@ -51,7 +51,11 @@ export function TenantProvider({ children }) {
           activo: true,
           modo_prueba: true,
           monto_sena: 100,
-          precio_total: 100
+          precio_total: 100,
+          canchas: [
+            { id: '1', nombre: 'Cancha 1', activa: true },
+            { id: '2', nombre: 'Cancha 2', activa: true }
+          ]
         })
       } else if (slug === 'reservas-futbol') {
         setNegocio({
@@ -62,7 +66,11 @@ export function TenantProvider({ children }) {
           activo: true,
           modo_prueba: false,
           monto_sena: 100,
-          precio_total: 100
+          precio_total: 100,
+          canchas: [
+            { id: '1', nombre: 'Cancha 1', activa: true },
+            { id: '2', nombre: 'Cancha 2', activa: true }
+          ]
         })
       } else {
         setError(err.message)
@@ -76,6 +84,23 @@ export function TenantProvider({ children }) {
     fetchTenant()
   }, [fetchTenant])
 
+  const todasLasCanchas = negocio?.canchas && Array.isArray(negocio.canchas) && negocio.canchas.length > 0
+    ? negocio.canchas
+    : [
+        { id: '1', nombre: 'Cancha 1', activa: true },
+        { id: '2', nombre: 'Cancha 2', activa: true }
+      ]
+
+  const canchasActivas = todasLasCanchas.filter(c => c.activa !== false)
+
+  const DEFAULT_HORARIOS = [
+    '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00'
+  ]
+
+  const horarios = negocio?.horarios && Array.isArray(negocio.horarios) && negocio.horarios.length > 0
+    ? negocio.horarios
+    : DEFAULT_HORARIOS
+
   const value = {
     slug,
     negocio,
@@ -84,6 +109,9 @@ export function TenantProvider({ children }) {
     telefono: negocio?.telefono || '5493804201334',
     montoSena: Number(negocio?.monto_sena) || 100,
     modoPrueba: !!negocio?.modo_prueba,
+    canchas: todasLasCanchas,
+    canchasActivas: canchasActivas.length > 0 ? canchasActivas : todasLasCanchas,
+    horarios,
     loading,
     error,
     refreshTenant: fetchTenant
@@ -106,6 +134,17 @@ export function useTenant() {
       nombreNegocio: 'Reservas Fútbol',
       montoSena: 100,
       modoPrueba: true,
+      canchas: [
+        { id: '1', nombre: 'Cancha 1', activa: true },
+        { id: '2', nombre: 'Cancha 2', activa: true }
+      ],
+      canchasActivas: [
+        { id: '1', nombre: 'Cancha 1', activa: true },
+        { id: '2', nombre: 'Cancha 2', activa: true }
+      ],
+      horarios: [
+        '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00'
+      ],
       loading: false,
       error: null,
       refreshTenant: () => {}

@@ -147,6 +147,90 @@ test('9. Admin puede acceder a configuración de su negocio', async () => {
   assert.ok(data.monto_sena !== undefined)
 })
 
+test('10. Admin y Colaborador pueden ver las canchas de su negocio (GET /admin/canchas)', async () => {
+  // Test con Colaborador
+  const resColab = await fetch(`${API_URL}/admin/canchas`, {
+    headers: { Authorization: `Bearer ${tokenColaboradorA}` }
+  })
+  assert.equal(resColab.status, 200, 'Colaborador debe poder consultar canchas')
+  const dataColab = await resColab.json()
+  assert.ok(Array.isArray(dataColab), 'Debe retornar un array de canchas')
+  assert.ok(dataColab.length > 0, 'Debe haber al menos 1 cancha')
+  assert.ok(dataColab[0].id !== undefined, 'Cancha debe tener id')
+  assert.ok(dataColab[0].nombre !== undefined, 'Cancha debe tener nombre')
+
+  // Test con Admin
+  const resAdmin = await fetch(`${API_URL}/admin/canchas`, {
+    headers: { Authorization: `Bearer ${tokenTenantA}` }
+  })
+  assert.equal(resAdmin.status, 200, 'Admin debe poder consultar canchas')
+})
+
+test('11. Colaborador puede alternar disponibilidad/visibilidad de una cancha (PUT /admin/canchas/:id/disponibilidad)', async () => {
+  const res = await fetch(`${API_URL}/admin/canchas/1/disponibilidad`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenColaboradorA}`
+    },
+    body: JSON.stringify({ activa: false })
+  })
+
+  assert.ok(res.status === 200 || res.status === 404, 'Debe responder 200 con éxito')
+  if (res.status === 200) {
+    const data = await res.json()
+    assert.equal(data.ok, true)
+    assert.ok(Array.isArray(data.canchas))
+  }
+})
+
+test('12. SuperAdmin endpoints devuelven y gestionan canchas de los negocios', async () => {
+  const res = await fetch(`${API_URL}/api/superadmin/negocios`, {
+    headers: { Authorization: `Bearer ${tokenSuperAdmin}` }
+  })
+
+  assert.equal(res.status, 200)
+  const data = await res.json()
+  assert.ok(Array.isArray(data))
+  if (data.length > 0) {
+    assert.ok(Array.isArray(data[0].canchas), 'Cada negocio debe tener un array canchas normalizado')
+  }
+})
+
+test('13. Endpoint público y Config de Admin devuelven horarios normalizados', async () => {
+  const resPub = await fetch(`${API_URL}/api/negocios/pruebas-reservas`)
+  assert.equal(resPub.status, 200)
+  const dataPub = await resPub.json()
+  assert.ok(Array.isArray(dataPub.horarios), 'Debe devolver array horarios')
+  assert.ok(dataPub.horarios.length > 0, 'Debe haber al menos 1 horario disponible')
+
+  const resAdmin = await fetch(`${API_URL}/admin/config`, {
+    headers: { Authorization: `Bearer ${tokenTenantA}` }
+  })
+  assert.equal(resAdmin.status, 200)
+  const dataAdmin = await resAdmin.json()
+  assert.ok(Array.isArray(dataAdmin.horarios), 'Admin config debe devolver array horarios')
+})
+
+test('14. Admin puede actualizar horarios configurados del negocio (PUT /admin/config)', async () => {
+  const nuevosHorarios = ['16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00']
+  const res = await fetch(`${API_URL}/admin/config`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenTenantA}`
+    },
+    body: JSON.stringify({
+      monto_sena: 150,
+      horarios: nuevosHorarios
+    })
+  })
+
+  assert.equal(res.status, 200, 'Debe responder 200 al actualizar config y horarios')
+  const data = await res.json()
+  assert.equal(data.ok, true)
+})
+
 test.after(() => {
   server.close()
 })

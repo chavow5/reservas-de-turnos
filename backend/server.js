@@ -48,6 +48,78 @@ const supabase = createClient(
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-cambiar-en-produccion'
 const DEFAULT_MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN
 
+// Helper para normalizar estructura de canchas
+export const normalizarCanchas = (raw) => {
+  if (!raw) {
+    return [
+      { id: '1', nombre: 'Cancha 1', activa: true },
+      { id: '2', nombre: 'Cancha 2', activa: true }
+    ]
+  }
+
+  if (typeof raw === 'number') {
+    const total = Math.max(1, Math.min(raw, 50))
+    return Array.from({ length: total }, (_, i) => ({
+      id: String(i + 1),
+      nombre: `Cancha ${i + 1}`,
+      activa: true
+    }))
+  }
+
+  if (Array.isArray(raw)) {
+    if (raw.length === 0) {
+      return [{ id: '1', nombre: 'Cancha 1', activa: true }]
+    }
+    return raw.map((item, index) => {
+      if (typeof item === 'string' || typeof item === 'number') {
+        const str = String(item).trim()
+        const nombre = str.toLowerCase().startsWith('cancha') ? str : `Cancha ${str}`
+        return {
+          id: str,
+          nombre,
+          activa: true
+        }
+      }
+      if (typeof item === 'object' && item !== null) {
+        const id = String(item.id || item.numero || index + 1).trim()
+        const nombre = item.nombre ? String(item.nombre).trim() : (id.toLowerCase().startsWith('cancha') ? id : `Cancha ${id}`)
+        return {
+          id,
+          nombre,
+          activa: item.activa !== false && item.disponible !== false
+        }
+      }
+      return { id: String(index + 1), nombre: `Cancha ${index + 1}`, activa: true }
+    })
+  }
+
+  return [
+    { id: '1', nombre: 'Cancha 1', activa: true },
+    { id: '2', nombre: 'Cancha 2', activa: true }
+  ]
+}
+
+// Helper para normalizar estructura de horarios disponibles por negocio
+export const normalizarHorarios = (raw) => {
+  const DEFAULT_HORARIOS = [
+    '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00'
+  ]
+
+  if (!raw) return DEFAULT_HORARIOS
+
+  if (Array.isArray(raw)) {
+    if (raw.length === 0) return DEFAULT_HORARIOS
+    const valid = raw
+      .map(h => String(h).trim())
+      .filter(h => /^([01]\d|2[0-3]):[0-5]\d$/.test(h))
+
+    if (valid.length === 0) return DEFAULT_HORARIOS
+    return Array.from(new Set(valid))
+  }
+
+  return DEFAULT_HORARIOS
+}
+
 // Helper para instanciar cliente de Mercado Pago dinámicamente por negocio
 const getMPClient = (customAccessToken) => {
   const token = customAccessToken || DEFAULT_MP_ACCESS_TOKEN
@@ -132,14 +204,14 @@ app.get('/api/negocios/:slug', async (req, res) => {
   try {
     let { data: negocio, error } = await supabase
       .from('negocios')
-      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total')
+      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, canchas, horarios')
       .eq('slug', slug)
       .single()
 
     if (error || !negocio) {
       const retry = await supabase
         .from('negocios')
-        .select('id, nombre, slug, plan, activo, modo_prueba, monto_sena, precio_total')
+        .select('id, nombre, slug, plan, activo, modo_prueba, monto_sena, precio_total, canchas')
         .eq('slug', slug)
         .single()
 
@@ -156,7 +228,12 @@ app.get('/api/negocios/:slug', async (req, res) => {
           activo: true,
           modo_prueba: true,
           monto_sena: 100,
-          precio_total: 100
+          precio_total: 100,
+          canchas: [
+            { id: '1', nombre: 'Cancha 1', activa: true },
+            { id: '2', nombre: 'Cancha 2', activa: true }
+          ],
+          horarios: normalizarHorarios(null)
         }
       } else if (slug === 'reservas-futbol') {
         negocio = {
@@ -169,7 +246,12 @@ app.get('/api/negocios/:slug', async (req, res) => {
           activo: true,
           modo_prueba: false,
           monto_sena: 100,
-          precio_total: 100
+          precio_total: 100,
+          canchas: [
+            { id: '1', nombre: 'Cancha 1', activa: true },
+            { id: '2', nombre: 'Cancha 2', activa: true }
+          ],
+          horarios: normalizarHorarios(null)
         }
       } else {
         return res.status(404).json({ error: 'Negocio no encontrado' })
@@ -180,7 +262,14 @@ app.get('/api/negocios/:slug', async (req, res) => {
       return res.status(403).json({ error: 'Este negocio se encuentra inactivo temporalmente' })
     }
 
-    res.json(negocio)
+    const canchasNormalizadas = normalizarCanchas(negocio.canchas)
+    const horariosNormalizados = normalizarHorarios(negocio.horarios)
+
+    res.json({
+      ...negocio,
+      canchas: canchasNormalizadas,
+      horarios: horariosNormalizados
+    })
   } catch (err) {
     console.error('Error obteniendo negocio por slug:', err)
     res.status(500).json({ error: 'Error del servidor al obtener negocio' })
@@ -845,20 +934,94 @@ app.delete('/admin/reservas/:id', verifyTenantUser(supabase), requireColaborador
 })
 
 // ============================
+// GESTIÓN DE CANCHAS Y DISPONIBILIDAD (COLABORADOR O ADMIN)
+// ============================
+app.get('/admin/canchas', verifyTenantUser(supabase), requireColaboradorOrAdmin, async (req, res) => {
+  try {
+    const { data: negocio, error } = await supabase
+      .from('negocios')
+      .select('id, canchas')
+      .eq('id', req.negocio_id)
+      .single()
+
+    if (error || !negocio) {
+      return res.json(normalizarCanchas(null))
+    }
+
+    res.json(normalizarCanchas(negocio.canchas))
+  } catch (err) {
+    console.error('Error listando canchas:', err)
+    res.status(500).json({ error: 'Error al obtener canchas' })
+  }
+})
+
+// Toggle disponibilidad de cancha por Colaborador o Admin
+app.put('/admin/canchas/:canchaId/disponibilidad', verifyTenantUser(supabase), requireColaboradorOrAdmin, async (req, res) => {
+  const { canchaId } = req.params
+  const { activa, disponible } = req.body
+
+  try {
+    const { data: negocio, error } = await supabase
+      .from('negocios')
+      .select('id, canchas')
+      .eq('id', req.negocio_id)
+      .single()
+
+    if (error || !negocio) {
+      return res.status(404).json({ error: 'Negocio no encontrado' })
+    }
+
+    const canchasActuales = normalizarCanchas(negocio.canchas)
+    const nuevoEstado = activa !== undefined ? !!activa : (disponible !== undefined ? !!disponible : true)
+
+    let encontrada = false
+    const canchasActualizadas = canchasActuales.map(c => {
+      if (String(c.id) === String(canchaId) || String(c.nombre) === String(canchaId)) {
+        encontrada = true
+        return { ...c, activa: nuevoEstado }
+      }
+      return c
+    })
+
+    if (!encontrada) {
+      return res.status(404).json({ error: 'Cancha no encontrada en este negocio' })
+    }
+
+    const { error: updateErr } = await supabase
+      .from('negocios')
+      .update({ canchas: canchasActualizadas })
+      .eq('id', req.negocio_id)
+
+    if (updateErr) {
+      return res.status(500).json({ error: updateErr.message })
+    }
+
+    res.json({
+      ok: true,
+      mensaje: `Cancha ${nuevoEstado ? 'activada' : 'pausada'} con éxito`,
+      canchas: canchasActualizadas
+    })
+  } catch (err) {
+    console.error('Error al cambiar disponibilidad de cancha:', err)
+    res.status(500).json({ error: 'Error al actualizar disponibilidad de cancha' })
+  }
+})
+
+// ============================
 // CONFIGURACIÓN DEL NEGOCIO (SOLO ADMIN)
 // ============================
 app.get('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
   try {
     let { data: negocio, error } = await supabase
       .from('negocios')
-      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
+      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, canchas, horarios, mp_access_token')
       .eq('id', req.negocio_id)
       .single()
 
     if (error || !negocio) {
       const retry = await supabase
         .from('negocios')
-        .select('id, nombre, slug, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
+        .select('id, nombre, slug, plan, activo, modo_prueba, monto_sena, precio_total, canchas, mp_access_token')
         .eq('id', req.negocio_id)
         .single()
 
@@ -872,6 +1035,8 @@ app.get('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, r
           direccion: '',
           monto_sena: 100,
           precio_total: 100,
+          canchas: normalizarCanchas(null),
+          horarios: normalizarHorarios(null),
           tiene_mp_token: false
         })
       }
@@ -886,6 +1051,8 @@ app.get('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, r
       monto_sena: negocio.monto_sena || 100,
       precio_total: negocio.precio_total || 100,
       modo_prueba: negocio.modo_prueba,
+      canchas: normalizarCanchas(negocio.canchas),
+      horarios: normalizarHorarios(negocio.horarios),
       tiene_mp_token: !!negocio.mp_access_token
     })
   } catch (err) {
@@ -895,7 +1062,7 @@ app.get('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, r
 })
 
 app.put('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
-  const { nombre, monto_sena, precio_total, telefono, direccion, mp_access_token } = req.body
+  const { nombre, monto_sena, precio_total, telefono, direccion, horarios, mp_access_token } = req.body
 
   try {
     const updateData = {}
@@ -904,6 +1071,7 @@ app.put('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, r
     if (precio_total !== undefined) updateData.precio_total = Number(precio_total)
     if (telefono !== undefined) updateData.telefono = telefono || null
     if (direccion !== undefined) updateData.direccion = direccion || null
+    if (horarios !== undefined) updateData.horarios = normalizarHorarios(horarios)
     if (mp_access_token) updateData.mp_access_token = mp_access_token
 
     let { error } = await supabase
@@ -914,6 +1082,7 @@ app.put('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, r
     if (error) {
       delete updateData.telefono
       delete updateData.direccion
+      delete updateData.horarios
       const retry = await supabase.from('negocios').update(updateData).eq('id', req.negocio_id)
       if (retry.error) return res.status(500).json({ error: retry.error.message })
     }
@@ -1063,7 +1232,7 @@ app.get('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
   try {
     let { data: negocios, error } = await supabase
       .from('negocios')
-      .select('id, nombre, slug, email_contacto, telefono, dni, direccion, plan, activo, modo_prueba, monto_sena, precio_mensual, estado_suscripcion, dia_vencimiento, ultimo_pago, mp_access_token, created_at')
+      .select('id, nombre, slug, email_contacto, telefono, dni, direccion, plan, activo, modo_prueba, monto_sena, precio_mensual, estado_suscripcion, dia_vencimiento, ultimo_pago, mp_access_token, canchas, created_at')
       .order('created_at', { ascending: false })
 
     // Fallback si aún no se corrió la migración de nuevas columnas
@@ -1091,6 +1260,7 @@ app.get('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
           precio_mensual: 0,
           estado_suscripcion: 'al_dia',
           dia_vencimiento: 10,
+          canchas: normalizarCanchas(null),
           total_reservas: 0
         },
         {
@@ -1107,6 +1277,8 @@ app.get('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
           precio_mensual: 25000,
           estado_suscripcion: 'al_dia',
           dia_vencimiento: 10,
+          canchas: normalizarCanchas(null),
+          horarios: normalizarHorarios(null),
           total_reservas: 0
         }
       ])
@@ -1127,6 +1299,8 @@ app.get('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
       precio_mensual: Number(n.precio_mensual) || 25000,
       estado_suscripcion: n.estado_suscripcion || 'al_dia',
       dia_vencimiento: n.dia_vencimiento || 10,
+      canchas: normalizarCanchas(n.canchas),
+      horarios: normalizarHorarios(n.horarios),
       total_reservas: conteoPorNegocio[n.id] || 0
     }))
 
@@ -1151,6 +1325,9 @@ app.post('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
     monto_sena,
     precio_mensual,
     dia_vencimiento,
+    canchas,
+    cantidad_canchas,
+    horarios,
     admin_email,
     admin_password,
     admin_nombre,
@@ -1162,6 +1339,8 @@ app.post('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
   }
 
   const slugNormalizado = slug.toLowerCase().trim().replace(/[^a-z0-9-_]/g, '-')
+  const canchasIniciales = normalizarCanchas(canchas || (cantidad_canchas ? Number(cantidad_canchas) : 2))
+  const horariosIniciales = normalizarHorarios(horarios)
 
   try {
     // 1. Crear Negocio
@@ -1178,6 +1357,8 @@ app.post('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
       precio_mensual: Number(precio_mensual) || 25000,
       dia_vencimiento: Number(dia_vencimiento) || 10,
       estado_suscripcion: 'al_dia',
+      canchas: canchasIniciales,
+      horarios: horariosIniciales,
       mp_access_token: mp_access_token ? mp_access_token.trim() : null,
       activo: true
     }
@@ -1199,6 +1380,8 @@ app.post('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
       delete insertPayload.precio_mensual
       delete insertPayload.dia_vencimiento
       delete insertPayload.estado_suscripcion
+      delete insertPayload.canchas
+      delete insertPayload.horarios
       const retry = await supabase.from('negocios').insert([insertPayload]).select().single()
       if (retry.error) return res.status(500).json({ error: retry.error.message })
       negocio = retry.data
@@ -1221,7 +1404,7 @@ app.post('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
     }
 
     console.log('🎉 Nuevo negocio creado por SuperAdmin:', negocio.nombre, negocio.slug)
-    res.json({ ok: true, negocio })
+    res.json({ ok: true, negocio: { ...negocio, canchas: canchasIniciales, horarios: horariosIniciales } })
   } catch (err) {
     console.error('Error creando negocio desde SuperAdmin:', err)
     res.status(500).json({ error: 'Error al crear el negocio' })
@@ -1230,6 +1413,7 @@ app.post('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
 
 // Activar/Desactivar o Actualizar Negocio
 app.put('/api/superadmin/negocios/:id', requireSuperAdmin, async (req, res) => {
+  const { id } = req.params
   const {
     nombre,
     slug,
@@ -1244,6 +1428,8 @@ app.put('/api/superadmin/negocios/:id', requireSuperAdmin, async (req, res) => {
     telefono,
     dni,
     direccion,
+    canchas,
+    horarios,
     mp_access_token
   } = req.body
 
@@ -1262,6 +1448,8 @@ app.put('/api/superadmin/negocios/:id', requireSuperAdmin, async (req, res) => {
     if (telefono !== undefined) updateData.telefono = telefono || null
     if (dni !== undefined) updateData.dni = dni || null
     if (direccion !== undefined) updateData.direccion = direccion || null
+    if (canchas !== undefined) updateData.canchas = normalizarCanchas(canchas)
+    if (horarios !== undefined) updateData.horarios = normalizarHorarios(horarios)
     if (mp_access_token !== undefined) updateData.mp_access_token = mp_access_token ? mp_access_token.trim() : null
 
     let { error } = await supabase
@@ -1276,7 +1464,8 @@ app.put('/api/superadmin/negocios/:id', requireSuperAdmin, async (req, res) => {
       delete updateData.direccion
       delete updateData.precio_mensual
       delete updateData.dia_vencimiento
-      delete updateData.estado_suscripcion
+      delete updateData.canchas
+      delete updateData.horarios
       const retry = await supabase.from('negocios').update(updateData).eq('id', id)
       if (retry.error) return res.status(500).json({ error: retry.error.message })
     }
