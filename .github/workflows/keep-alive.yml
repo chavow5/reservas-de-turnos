@@ -2,8 +2,8 @@ name: Supabase Keep Alive
 
 on:
   schedule:
-    # Corre cada 3 días a las 08:00 UTC (garantiza no llegar a los 7 días de inactividad)
-    - cron: '0 8 */3 * *'
+    # Corre cada 2 días a las 08:00 UTC (garantiza no llegar a los 7 días de inactividad)
+    - cron: '0 8 */2 * *'
   workflow_dispatch: # Permite ejecutar la acción manualmente desde la pestaña Actions en GitHub
 
 jobs:
