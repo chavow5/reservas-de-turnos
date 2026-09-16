@@ -161,44 +161,24 @@ export default function ReservaTurno() {
 
       // CASO 2: PRODUCCIÓN (Mercado Pago dinámico)
       setTexto("Conectando con Mercado Pago...")
-      
-      // Abrir pestaña emergente de forma anticipada para evitar bloqueos del navegador
-      let popupWindow = null
-      try {
-        popupWindow = window.open('about:blank', '_blank')
-      } catch (popupErr) {
-        console.warn('No se pudo pre-abrir la pestaña:', popupErr)
-      }
 
-      try {
-        const res = await axios.post(`${API_URL}/create-preference`, {
-          slug,
-          nombre: form.nombre,
-          cancha: form.cancha,
-          fecha: form.fecha,
-          hora: form.hora
-        })
+      const res = await axios.post(`${API_URL}/create-preference`, {
+        slug,
+        nombre: form.nombre,
+        cancha: form.cancha,
+        fecha: form.fecha,
+        hora: form.hora
+      })
 
-        if (res.data && res.data.init_point) {
-          const initPoint = res.data.init_point
-
-          // Asignar el enlace de Mercado Pago a la pestaña abierta
-          if (popupWindow && !popupWindow.closed) {
-            popupWindow.location.href = initPoint
-          } else {
-            window.open(initPoint, '_blank')
-          }
-
-          // Redirigir la pestaña actual a la confirmación de la reserva
-          navigate(`/${slug}/success?nombre=${encodeURIComponent(form.nombre)}&fecha=${form.fecha}&hora=${form.hora}&cancha=${form.cancha}&mp_url=${encodeURIComponent(initPoint)}`)
-          return
-        } else {
-          if (popupWindow && !popupWindow.closed) popupWindow.close()
-          throw new Error('No se pudo obtener el punto de inicio de pago')
-        }
-      } catch (mpErr) {
-        if (popupWindow && !popupWindow.closed) popupWindow.close()
-        throw mpErr
+      if (res.data && res.data.init_point) {
+        setTexto("Redirigiendo a Mercado Pago...")
+        // Redirigir directamente en la misma ventana.
+        // Esto permite que tanto en Android como en iOS el sistema operativo
+        // detecte el enlace y abra directamente la app de Mercado Libre o Mercado Pago.
+        window.location.href = res.data.init_point
+        return
+      } else {
+        throw new Error('No se pudo obtener el punto de inicio de pago')
       }
 
     } catch (err) {

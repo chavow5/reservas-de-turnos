@@ -76,8 +76,6 @@ export default function Success() {
               </p>
               <a
                 href={mpUrl}
-                target="_blank"
-                rel="noreferrer"
                 className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-5 py-2.5 rounded-xl text-sm transition-all shadow-sm shadow-blue-200"
               >
                 <span>💳</span> Abrir Mercado Pago para pagar
