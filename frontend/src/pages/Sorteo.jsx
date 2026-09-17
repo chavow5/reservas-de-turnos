@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom"
 import { useTenant } from '../context/TenantContext'
 
 export default function Sorteo() {
-  const { slug, nombreNegocio } = useTenant()
+  const { nombreNegocio } = useTenant()
   const [input, setInput] = useState('')
   const [jugadores, setJugadores] = useState([])
   const [equipoA, setEquipoA] = useState([])

@@ -8,9 +8,8 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago'
 import { createClient } from '@supabase/supabase-js'
-import { verifyTenantUser } from './middleware/tenant.js'
+import { verifyAuth } from './middleware/auth.js'
 import { requireAdmin, requireColaboradorOrAdmin } from './middleware/roles.js'
-import { requireSuperAdmin } from './middleware/superadmin.js'
 
 const app = express()
 
@@ -18,10 +17,11 @@ const app = express()
 // CORS
 // ============================
 const allowedOrigins = [
+  process.env.FRONTEND_URL,
   'https://reservas-de-turnos.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000'
-]
+].filter(Boolean)
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -32,13 +32,13 @@ app.use(cors({
     }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-negocio-id'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }))
 
 app.use(express.json())
 
-console.log('🔥 SERVER MULTI-TENANT ACTIVADO 🔥')
+console.log('⚡ Servidor de Reservas Activo (Single-Tenant) ⚡')
 
 // ============================
 // CLIENTES EXTERNOS
@@ -102,7 +102,7 @@ export const normalizarCanchas = (raw) => {
   ]
 }
 
-// Helper para normalizar estructura de horarios disponibles por negocio
+// Helper para normalizar estructura de horarios disponibles
 export const normalizarHorarios = (raw) => {
   const DEFAULT_HORARIOS = [
     '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00'
@@ -172,7 +172,7 @@ export const saveBusinessExtras = (data) => {
   }
 }
 
-// Helper para instanciar cliente de Mercado Pago dinámicamente por negocio
+// Helper para instanciar cliente de Mercado Pago
 const getMPClient = (customAccessToken) => {
   const token = customAccessToken || DEFAULT_MP_ACCESS_TOKEN
   return new MercadoPagoConfig({ accessToken: token })
@@ -183,7 +183,7 @@ const getMPClient = (customAccessToken) => {
 // ============================
 const CUATRO_DIAS_MS = 4 * 24 * 60 * 60 * 1000
 
-setInterval(async () => {
+const keepAliveTimer = setInterval(async () => {
   try {
     const { error } = await supabase.from('reservas').select('id').limit(1)
     if (error) console.error('⚠️ Keep-alive Supabase error:', error.message)
@@ -192,10 +192,10 @@ setInterval(async () => {
     console.error('⚠️ Keep-alive excepción:', e.message)
   }
 }, CUATRO_DIAS_MS)
+if (keepAliveTimer.unref) keepAliveTimer.unref()
 
 // ============================
-// TAREA B: HEALTH CHECK DE BASE DE DATOS
-// Endpoint con timeout de 5 segundos para verificar si la base está activa
+// HEALTH CHECK DE BASE DE DATOS
 // ============================
 app.get('/health/db', async (req, res) => {
   const startTime = Date.now()
@@ -234,7 +234,6 @@ app.get('/health/db', async (req, res) => {
   }
 })
 
-// Keep-alive general
 app.get('/health', async (req, res) => {
   try {
     const { error } = await supabase.from('reservas').select('id').limit(1)
@@ -246,59 +245,40 @@ app.get('/health', async (req, res) => {
 })
 
 // ============================
-// ENDPOINTS PÚBLICOS DE NEGOCIO (SINGLE-TENANT & COMPATIBILIDAD)
+// ENDPOINTS PÚBLICOS DEL NEGOCIO
 // ============================
 
-// Obtener configuración pública del negocio único
+// Obtener configuración pública del negocio
 app.get('/api/config', async (req, res) => {
   try {
     let negocio = null
-    const selectColsBasic = 'id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token'
+    const selectColsBasic = 'id, nombre, telefono, direccion, plan, activo, monto_sena, precio_total, mp_access_token'
     const selectColsWithExtras = `${selectColsBasic}, canchas, horarios`
 
-    // Intentar leer con columnas extras de Supabase
     let resSup = await supabase
       .from('negocios')
       .select(selectColsWithExtras)
-      .eq('id', '22222222-2222-2222-2222-222222222222')
+      .limit(1)
       .maybeSingle()
 
     if (resSup.error) {
-      // Reintentar sin columnas extras si la tabla en Supabase no las tiene aún
       resSup = await supabase
         .from('negocios')
         .select(selectColsBasic)
-        .eq('id', '22222222-2222-2222-2222-222222222222')
+        .limit(1)
         .maybeSingle()
     }
-    negocio = resSup.data
-
-    if (!negocio) {
-      let fallbackRes = await supabase
-        .from('negocios')
-        .select(selectColsWithExtras)
-        .eq('slug', 'reservas-futbol')
-        .maybeSingle()
-      if (fallbackRes.error) {
-        fallbackRes = await supabase
-          .from('negocios')
-          .select(selectColsBasic)
-          .eq('slug', 'reservas-futbol')
-          .maybeSingle()
-      }
-      negocio = fallbackRes.data
-    }
+    negocio = resSup?.data
 
     const extras = getBusinessExtras()
 
     if (!negocio) {
       negocio = {
-        id: '22222222-2222-2222-2222-222222222222',
-        nombre: 'ChavoF5',
+        id: '1',
+        nombre: 'Cancha Fútbol',
         telefono: '3804201334',
         direccion: 'Av. San Martín 1234',
         activo: true,
-        modo_prueba: false,
         monto_sena: 100,
         precio_total: 100
       }
@@ -325,7 +305,7 @@ app.get('/api/config', async (req, res) => {
   }
 })
 
-// Obtener turnos ocupados públicos sin requerir slug
+// Obtener turnos ocupados públicos para el calendario
 app.get('/api/turnos-ocupados', async (req, res) => {
   const { desde, hasta } = req.query
 
@@ -351,187 +331,12 @@ app.get('/api/turnos-ocupados', async (req, res) => {
   }
 })
 
-// Obtener datos públicos de un negocio por slug (compatibilidad)
-app.get('/api/negocios/:slug', async (req, res) => {
-  const { slug } = req.params
-
-  try {
-    let { data: negocio, error } = await supabase
-      .from('negocios')
-      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
-      .eq('slug', slug)
-      .maybeSingle()
-
-    const extras = getBusinessExtras()
-
-    if (error || !negocio) {
-      if (slug === 'pruebas-reservas') {
-        negocio = {
-          id: '11111111-1111-1111-1111-111111111111',
-          nombre: 'Pruebas-Reservas',
-          slug: 'pruebas-reservas',
-          telefono: '3804201334',
-          direccion: 'Cancha Demo Central',
-          plan: 'pro',
-          activo: true,
-          modo_prueba: true,
-          monto_sena: 100,
-          precio_total: 100
-        }
-      } else if (slug === 'reservas-futbol') {
-        negocio = {
-          id: '22222222-2222-2222-2222-222222222222',
-          nombre: 'Reservas Fútbol',
-          slug: 'reservas-futbol',
-          telefono: '3804201334',
-          direccion: 'Av. San Martín 1234',
-          plan: 'pro',
-          activo: true,
-          modo_prueba: false,
-          monto_sena: 100,
-          precio_total: 100
-        }
-      } else {
-        return res.status(404).json({ error: 'Negocio no encontrado' })
-      }
-    }
-
-    if (!negocio.activo) {
-      return res.status(403).json({ error: 'Este negocio se encuentra inactivo temporalmente' })
-    }
-
-    res.json({
-      ...negocio,
-      telefono: negocio.telefono || '3804201334',
-      direccion: negocio.direccion || '',
-      canchas: extras.canchas,
-      horarios: extras.horarios
-    })
-  } catch (err) {
-    console.error('Error obteniendo negocio por slug:', err)
-    res.status(500).json({ error: 'Error del servidor al obtener negocio' })
-  }
-})
-// Obtener reservas ocupadas públicas para calendario de un negocio
-app.get('/api/negocios/:slug/turnos-ocupados', async (req, res) => {
-  const { slug } = req.params
-  const { desde, hasta } = req.query
-
-  try {
-    // Buscar negocio
-    const { data: negocio } = await supabase
-      .from('negocios')
-      .select('id')
-      .eq('slug', slug)
-      .single()
-
-    const negocioId = negocio?.id || (slug === 'pruebas-reservas' ? '11111111-1111-1111-1111-111111111111' : '22222222-2222-2222-2222-222222222222')
-
-    let query = supabase
-      .from('reservas')
-      .select('fecha, hora, cancha, estado_pago, pagado')
-      .eq('negocio_id', negocioId)
-
-    if (desde) query = query.gte('fecha', desde)
-    if (hasta) query = query.lte('fecha', hasta)
-
-    const { data, error } = await query
-
-    if (error) {
-      // Si la columna negocio_id aún no existe, fallback a reservas generales
-      const { data: fallbackData } = await supabase.from('reservas').select('fecha, hora, cancha, pagado')
-      return res.json(fallbackData || [])
-    }
-
-    // Retornar turnos que están ocupados (cualquier reserva existente bloquea el turno)
-    res.json(data || [])
-  } catch (err) {
-    console.error('Error obteniendo turnos ocupados:', err)
-    res.status(500).json({ error: 'Error al consultar disponibilidad' })
-  }
-})
-
-// Reserva directa para MODO PRUEBA / DEMO (sin pasar por Mercado Pago)
-app.post('/api/demo/reservar', async (req, res) => {
-  const { slug, nombre, fecha, hora, cancha } = req.body
-  const canchaFinal = cancha || '1'
-
-  if (!slug || !nombre || !fecha || !hora) {
-    return res.status(400).json({ error: 'Datos incompletos para la reserva de prueba' })
-  }
-
-  try {
-    // Verificar que el negocio esté en modo prueba
-    let negocioId = '11111111-1111-1111-1111-111111111111'
-    const { data: negocio } = await supabase
-      .from('negocios')
-      .select('id, modo_prueba, activo')
-      .eq('slug', slug)
-      .single()
-
-    if (negocio) {
-      if (!negocio.activo) return res.status(403).json({ error: 'Negocio inactivo' })
-      if (!negocio.modo_prueba) return res.status(400).json({ error: 'Este negocio no admite reservas directas de prueba' })
-      negocioId = negocio.id
-    }
-
-    // Verificar disponibilidad
-    const { data: existing } = await supabase
-      .from('reservas')
-      .select('id')
-      .eq('fecha', fecha)
-      .eq('hora', hora)
-      .eq('cancha', canchaFinal)
-      .eq('negocio_id', negocioId)
-      .limit(1)
-
-    if (existing && existing.length > 0) {
-      return res.status(400).json({ error: 'El turno ya se encuentra ocupado para esa fecha, hora y cancha.' })
-    }
-
-    // Insertar reserva demo
-    const { data: inserted, error: insertErr } = await supabase
-      .from('reservas')
-      .insert([{
-        nombre: `${nombre} (DEMO)`,
-        fecha,
-        hora,
-        cancha: canchaFinal,
-        pagado: true,
-        estado_pago: 'pagado',
-        monto_pagado: 100,
-        payment_id: 'demo_' + Date.now(),
-        negocio_id: negocioId
-      }])
-      .select()
-      .single()
-
-    if (insertErr) {
-      // Fallback si la columna negocio_id o estado_pago aún no existen
-      await supabase.from('reservas').insert([{
-        nombre: `${nombre} (DEMO)`,
-        fecha,
-        hora,
-        cancha: canchaFinal,
-        pagado: true,
-        payment_id: 'demo_' + Date.now()
-      }])
-    }
-
-    console.log('✅ Reserva DEMO creada exitosamente para:', slug)
-    res.json({ ok: true, mensaje: 'Reserva de prueba confirmada', reserva: inserted })
-  } catch (err) {
-    console.error('Error creando reserva demo:', err)
-    res.status(500).json({ error: 'Error al procesar reserva de prueba' })
-  }
-})
-
 // ============================
-// MERCADO PAGO: CREATE PREFERENCE (DINÁMICO POR NEGOCIO)
+// MERCADO PAGO: CREATE PREFERENCE
 // ============================
 app.post('/create-preference', async (req, res) => {
   try {
-    const { slug, nombre, fecha, hora, cancha } = req.body
+    const { nombre, fecha, hora, cancha } = req.body
     const canchaFinal = cancha || '1'
 
     if (!nombre || !fecha || !hora) {
@@ -539,76 +344,48 @@ app.post('/create-preference', async (req, res) => {
     }
 
     // Buscar configuración del negocio
-    let negocioId = '22222222-2222-2222-2222-222222222222'
-    let mpAccessToken = null
+    let mpAccessToken = DEFAULT_MP_ACCESS_TOKEN
     let montoSena = 100
-    let nombreNegocio = 'Reserva Fútbol'
+    let nombreNegocio = 'Reserva Cancha'
 
-    if (slug) {
-      const { data: neg } = await supabase
-        .from('negocios')
-        .select('id, nombre, mp_access_token, monto_sena, activo, modo_prueba')
-        .eq('slug', slug)
-        .maybeSingle()
+    const { data: neg } = await supabase
+      .from('negocios')
+      .select('id, nombre, mp_access_token, monto_sena, activo')
+      .limit(1)
+      .maybeSingle()
 
-      if (neg) {
-        if (!neg.activo) return res.status(403).json({ error: 'Negocio suspendido o inactivo' })
-        if (neg.modo_prueba) {
-          return res.status(400).json({ error: 'Este negocio está configurado en Modo Prueba. Debe reservar mediante el flujo demo sin Mercado Pago.' })
-        }
-        negocioId = neg.id
-        nombreNegocio = neg.nombre
-        mpAccessToken = neg.mp_access_token
-        if (neg.monto_sena) montoSena = Number(neg.monto_sena)
-      }
-    } else {
-      const { data: neg } = await supabase
-        .from('negocios')
-        .select('id, nombre, mp_access_token, monto_sena, activo, modo_prueba')
-        .eq('id', negocioId)
-        .maybeSingle()
-
-      if (neg) {
-        if (!neg.activo) return res.status(403).json({ error: 'Negocio suspendido o inactivo' })
-        nombreNegocio = neg.nombre
-        mpAccessToken = neg.mp_access_token
-        if (neg.monto_sena) montoSena = Number(neg.monto_sena)
-      }
+    if (neg) {
+      if (!neg.activo) return res.status(403).json({ error: 'El negocio se encuentra suspendido o inactivo' })
+      nombreNegocio = neg.nombre || nombreNegocio
+      if (neg.mp_access_token) mpAccessToken = neg.mp_access_token
+      if (neg.monto_sena) montoSena = Number(neg.monto_sena)
     }
 
-    // 🛡️ SEGURIDAD: Exigir credenciales propias de Mercado Pago para cada negocio
     if (!mpAccessToken) {
-      if (slug === 'reservas-futbol' || !slug) {
-        mpAccessToken = DEFAULT_MP_ACCESS_TOKEN
-      } else {
-        return res.status(400).json({
-          error: `El negocio "${nombreNegocio}" aún no ha configurado sus credenciales de Mercado Pago para recibir cobros. Configúrelas en el panel de administración o active el Modo Demo.`
-        })
-      }
+      return res.status(400).json({
+        error: `El negocio aún no ha configurado sus credenciales de Mercado Pago. Configúrelas en el panel de administración.`
+      })
     }
 
-
-    // Verificar disponibilidad (cualquier reserva existente bloquea el turno)
-    const { data: existingSlot, error: errSlot } = await supabase
+    // Verificar disponibilidad
+    const { data: existingSlot } = await supabase
       .from('reservas')
       .select('id')
       .eq('fecha', fecha)
       .eq('hora', hora)
       .eq('cancha', canchaFinal)
-      .eq('negocio_id', negocioId)
       .limit(1)
 
     if (existingSlot && existingSlot.length > 0) {
       return res.status(400).json({ error: 'El turno ya se encuentra reservado.' })
     }
 
-    const externalReference = `RES-${negocioId}-${Date.now()}`
+    const externalReference = `RES-${Date.now()}`
     const client = getMPClient(mpAccessToken)
     const preference = new Preference(client)
 
     const baseUrl = (process.env.FRONTEND_URL || 'https://reservas-de-turnos.vercel.app').replace(/\/$/, '')
     const isHttps = baseUrl.startsWith('https://')
-    const tenantSlug = slug || 'reservas-futbol'
 
     const preferenceBody = {
       external_reference: externalReference,
@@ -627,10 +404,8 @@ app.post('/create-preference', async (req, res) => {
         excluded_payment_types: [{ id: 'ticket' }],
         installments: 1
       },
-      statement_descriptor: 'Reserva Futbol',
+      statement_descriptor: 'Reserva Cancha',
       metadata: {
-        negocio_id: negocioId,
-        slug: tenantSlug,
         nombre,
         cancha: canchaFinal,
         fecha,
@@ -639,13 +414,11 @@ app.post('/create-preference', async (req, res) => {
         external_reference: externalReference
       },
       back_urls: {
-        success: slug
-          ? `${baseUrl}/${tenantSlug}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`
-          : `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
-        failure: slug ? `${baseUrl}/${tenantSlug}` : `${baseUrl}`,
-        pending: slug ? `${baseUrl}/${tenantSlug}` : `${baseUrl}`
+        success: `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
+        failure: `${baseUrl}`,
+        pending: `${baseUrl}`
       },
-      notification_url: 'https://reservas-de-turnos.onrender.com/webhook'
+      notification_url: process.env.WEBHOOK_URL || (process.env.BACKEND_URL ? `${process.env.BACKEND_URL.replace(/\/$/, '')}/webhook` : 'https://reservas-de-turnos.onrender.com/webhook')
     }
 
     if (isHttps) {
@@ -654,7 +427,7 @@ app.post('/create-preference', async (req, res) => {
 
     const response = await preference.create({ body: preferenceBody })
 
-    console.log('✅ Preference creada — Ref:', externalReference, 'Negocio:', tenantSlug)
+    console.log('✅ Preference creada — Ref:', externalReference)
     res.json({
       init_point: response.init_point,
       external_reference: externalReference
@@ -714,7 +487,7 @@ app.post('/webhook', async (req, res) => {
       const payment = new Payment(defaultClient)
       mpPayment = await payment.get({ id: paymentId })
     } catch (mpErr) {
-      console.warn('⚠️ No se pudo consultar payment.get en MP (posible restricción de credenciales en vivo):', mpErr.message)
+      console.warn('⚠️ No se pudo consultar payment.get en MP:', mpErr.message)
     }
 
     if (!mpPayment) {
@@ -726,9 +499,8 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200)
     }
 
-    const { negocio_id, nombre, fecha, hora, cancha, monto_sena } = mpPayment.metadata || {}
+    const { nombre, fecha, hora, cancha, monto_sena } = mpPayment.metadata || {}
     const canchaFinal = cancha || '1'
-    const finalNegocioId = negocio_id || '22222222-2222-2222-2222-222222222222'
 
     // Verificar si ya existe por payment_id
     const { data: existingByPid } = await supabase
@@ -749,7 +521,6 @@ app.post('/webhook', async (req, res) => {
       .eq('fecha', fecha)
       .eq('hora', hora)
       .eq('cancha', canchaFinal)
-      .eq('negocio_id', finalNegocioId)
       .limit(1)
 
     if (existing && existing.length > 0) {
@@ -770,22 +541,19 @@ app.post('/webhook', async (req, res) => {
           estado_pago: 'señado',
           monto_pagado: monto_sena || mpPayment.transaction_amount || 100,
           payment_id: String(paymentId),
-          negocio_id: finalNegocioId,
           creado_por: 'Cliente (Online - Mercado Pago)'
         }
       ])
 
     if (insertError) {
       console.error('Error insertando reserva desde webhook:', insertError)
-      // Fallback básico
       await supabase.from('reservas').insert([{
         nombre,
         fecha,
         hora,
         cancha: canchaFinal,
         pagado: true,
-        payment_id: String(paymentId),
-        negocio_id: finalNegocioId
+        payment_id: String(paymentId)
       }])
     }
 
@@ -810,9 +578,7 @@ app.post('/api/confirmar-pago', async (req, res) => {
       nombre,
       fecha,
       hora,
-      cancha,
-      external_reference,
-      slug
+      cancha
     } = req.body
 
     const pid = String(payment_id || collection_id || '').trim()
@@ -828,29 +594,6 @@ app.post('/api/confirmar-pago', async (req, res) => {
 
     const canchaFinal = String(cancha || '1')
 
-    // Determinar negocio_id
-    let finalNegocioId = null
-    if (external_reference) {
-      const match = String(external_reference).match(/^RES-([0-9a-fA-F-]+)-\d+$/)
-      if (match && match[1]) {
-        finalNegocioId = match[1]
-      }
-    }
-
-    if (!finalNegocioId && slug) {
-      const { data: negData } = await supabase
-        .from('negocios')
-        .select('id')
-        .eq('slug', slug)
-        .limit(1)
-        .single()
-      if (negData?.id) finalNegocioId = negData.id
-    }
-
-    if (!finalNegocioId) {
-      finalNegocioId = '22222222-2222-2222-2222-222222222222'
-    }
-
     // 1. Idempotencia: Verificar si ya existe reserva por payment_id
     if (pid) {
       const { data: existingByPid } = await supabase
@@ -865,14 +608,13 @@ app.post('/api/confirmar-pago', async (req, res) => {
       }
     }
 
-    // 2. Verificar si el turno ya está tomado en esa fecha/hora/cancha/negocio
+    // 2. Verificar si el turno ya está tomado en esa fecha/hora/cancha
     const { data: existingSlot } = await supabase
       .from('reservas')
       .select('*')
       .eq('fecha', fecha)
       .eq('hora', hora)
       .eq('cancha', canchaFinal)
-      .eq('negocio_id', finalNegocioId)
       .limit(1)
 
     if (existingSlot && existingSlot.length > 0) {
@@ -880,14 +622,14 @@ app.post('/api/confirmar-pago', async (req, res) => {
       return res.json({ ok: true, ya_registrada: true, reserva: existingSlot[0] })
     }
 
-    // Obtener monto_sena del negocio
-    let montoSena = 50
+    // Obtener monto_sena
+    let montoSena = 100
     try {
       const { data: neg } = await supabase
         .from('negocios')
         .select('monto_sena')
-        .eq('id', finalNegocioId)
-        .single()
+        .limit(1)
+        .maybeSingle()
       if (neg && typeof neg.monto_sena === 'number') {
         montoSena = neg.monto_sena
       }
@@ -905,7 +647,6 @@ app.post('/api/confirmar-pago', async (req, res) => {
       estado_pago: 'señado',
       monto_pagado: montoSena,
       payment_id: pid || `mp_${Date.now()}`,
-      negocio_id: finalNegocioId,
       creado_por: 'Cliente (Online - Mercado Pago)'
     }
 
@@ -937,10 +678,10 @@ app.post('/api/confirmar-pago', async (req, res) => {
 })
 
 // ============================
-// AUTENTICACIÓN ADMIN / COLABORADOR POR NEGOCIO
+// AUTENTICACIÓN ADMIN / COLABORADOR
 // ============================
 app.post('/admin/login', async (req, res) => {
-  const { slug, email, password } = req.body
+  const { email, password } = req.body
   const ADMIN_PASSWORD_GLOBAL = process.env.ADMIN_PASSWORD || 'admin123'
 
   if (!password) {
@@ -948,42 +689,11 @@ app.post('/admin/login', async (req, res) => {
   }
 
   try {
-    // 1. Si no hay slug, o se pasa el superadmin
-    const superAdminEmail = process.env.SUPERADMIN_EMAIL || 'chavow5@superadmin'
-    const superAdminPassword = process.env.SUPERADMIN_PASSWORD || 'superadmin123'
-    if (email === superAdminEmail && password === superAdminPassword) {
-      const token = jwt.sign(
-        { rol: 'superadmin', email: superAdminEmail, nombre: 'Super Admin' },
-        JWT_SECRET,
-        { expiresIn: '12h' }
-      )
-      return res.json({
-        token,
-        user: { nombre: 'Super Admin', email: superAdminEmail, rol: 'superadmin' }
-      })
-    }
-
-    const tenantSlug = slug || 'reservas-futbol'
-
-    // 2. Buscar negocio
-    const { data: negocio, error: negErr } = await supabase
-      .from('negocios')
-      .select('id, nombre, slug, activo')
-      .eq('slug', tenantSlug)
-      .single()
-
-    let negocioId = negocio?.id || (tenantSlug === 'pruebas-reservas' ? '11111111-1111-1111-1111-111111111111' : '22222222-2222-2222-2222-222222222222')
-    let negocioNombre = negocio?.nombre || (tenantSlug === 'pruebas-reservas' ? 'Pruebas-Reservas' : 'Reservas Fútbol')
-
-    if (negocio && !negocio.activo) {
-      return res.status(403).json({ error: 'El negocio se encuentra inactivo' })
-    }
-
-    // 3. Buscar usuario en tabla usuarios
+    // 1. Buscar usuario en tabla usuarios
     if (email) {
       const { data: usuario, error: userErr } = await supabase
         .from('usuarios')
-        .select('id, email, password, nombre, rol, activo, negocio_id')
+        .select('id, email, password, nombre, rol, activo')
         .eq('email', email)
         .single()
 
@@ -996,11 +706,9 @@ app.post('/admin/login', async (req, res) => {
           const token = jwt.sign(
             {
               usuario_id: usuario.id,
-              negocio_id: usuario.negocio_id || negocioId,
               rol: usuario.rol,
               nombre: usuario.nombre,
-              email: usuario.email,
-              slug: tenantSlug
+              email: usuario.email
             },
             JWT_SECRET,
             { expiresIn: '8h' }
@@ -1012,32 +720,25 @@ app.post('/admin/login', async (req, res) => {
               id: usuario.id,
               nombre: usuario.nombre,
               email: usuario.email,
-              rol: usuario.rol,
-              slug: tenantSlug,
-              negocioNombre
+              rol: usuario.rol
             }
           })
         }
       }
     }
 
-    // 4. Fallback: Verificación con contraseña maestra / demo
-    const esDemo = tenantSlug === 'pruebas-reservas' && password === '123456'
-    const esReal = (tenantSlug === 'reservas-futbol' || !slug) && password === ADMIN_PASSWORD_GLOBAL
-
-    if (esDemo || esReal) {
+    // 2. Fallback con contraseña maestra
+    if (password === ADMIN_PASSWORD_GLOBAL) {
       const userRol = 'admin'
-      const userNombre = esDemo ? 'Admin Pruebas' : 'Admin Principal'
-      const userEmail = esDemo ? 'admin@pruebas.com' : 'admin@reservas.com'
+      const userNombre = 'Admin Principal'
+      const userEmail = email || 'admin@reservas.com'
 
       const token = jwt.sign(
         {
-          usuario_id: esDemo ? 'user-demo-admin' : 'user-real-admin',
-          negocio_id: negocioId,
+          usuario_id: 'admin-principal',
           rol: userRol,
           nombre: userNombre,
-          email: userEmail,
-          slug: tenantSlug
+          email: userEmail
         },
         JWT_SECRET,
         { expiresIn: '8h' }
@@ -1046,12 +747,10 @@ app.post('/admin/login', async (req, res) => {
       return res.json({
         token,
         user: {
-          id: esDemo ? 'user-demo-admin' : 'user-real-admin',
+          id: 'admin-principal',
           nombre: userNombre,
           email: userEmail,
-          rol: userRol,
-          slug: tenantSlug,
-          negocioNombre
+          rol: userRol
         }
       })
     }
@@ -1067,19 +766,13 @@ app.post('/admin/login', async (req, res) => {
 // ADMIN / COLABORADOR: GESTIÓN DE RESERVAS
 // ============================
 
-// GET — Todas las reservas del negocio autenticado
-app.get('/admin/reservas', verifyTenantUser(supabase), async (req, res) => {
+// GET — Todas las reservas
+app.get('/admin/reservas', verifyAuth, async (req, res) => {
   try {
-    let query = supabase
+    const { data, error } = await supabase
       .from('reservas')
       .select('*')
       .order('fecha', { ascending: true })
-
-    if (req.rol !== 'superadmin' && req.negocio_id) {
-      query = query.eq('negocio_id', req.negocio_id)
-    }
-
-    const { data, error } = await query
 
     if (error) {
       console.error('Error obteniendo reservas:', error)
@@ -1098,46 +791,45 @@ app.get('/admin/reservas', verifyTenantUser(supabase), async (req, res) => {
               creadoPor = match[1]
             }
           } else {
-            creadoPor = 'Admin (Manual)'
+            creadoPor = 'Admin / Colaborador'
           }
+        } else if (r.pagado) {
+          creadoPor = 'Cliente (Online - Mercado Pago)'
         } else {
-          creadoPor = 'Cliente (Online)'
+          creadoPor = 'Admin'
         }
       }
+
       return {
         ...r,
+        estado_pago: r.estado_pago || (r.pagado ? 'pagado' : 'sin_pago'),
+        monto_pagado: r.monto_pagado !== undefined ? r.monto_pagado : (r.pagado ? 100 : 0),
         creado_por: creadoPor
       }
     })
 
     res.json(enriched)
   } catch (err) {
-    console.error('Error en GET /admin/reservas:', err)
-    res.status(500).json({ error: 'Error al consultar reservas' })
+    console.error('Error en /admin/reservas:', err)
+    res.status(500).json({ error: 'Error del servidor al obtener reservas' })
   }
 })
 
-// POST — Crear reserva manual (Admin o Colaborador)
-app.post('/admin/reservas', verifyTenantUser(supabase), requireColaboradorOrAdmin, async (req, res) => {
+// POST — Crear reserva manual
+app.post('/admin/reservas', verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   const { nombre, fecha, hora, cancha, pagado, estado_pago, monto_pagado } = req.body
   const canchaFinal = cancha || '1'
   const finalEstadoPago = estado_pago || (pagado ? 'pagado' : 'sin_pago')
   const finalPagado = ['pagado', 'señado'].includes(finalEstadoPago)
 
   try {
-    // Verificar si el turno ya está ocupado en este negocio
-    let checkQuery = supabase
+    const { data: existing, error: errCheck } = await supabase
       .from('reservas')
       .select('id')
       .eq('fecha', fecha)
       .eq('hora', hora)
       .eq('cancha', canchaFinal)
-
-    if (req.negocio_id) {
-      checkQuery = checkQuery.eq('negocio_id', req.negocio_id)
-    }
-
-    const { data: existing, error: errCheck } = await checkQuery.limit(1)
+      .limit(1)
 
     if (errCheck) {
       console.error('Error verificando disponibilidad:', errCheck)
@@ -1152,7 +844,6 @@ app.post('/admin/reservas', verifyTenantUser(supabase), requireColaboradorOrAdmi
     const safeUserTag = encodeURIComponent(usuarioCreador)
     const paymentId = `manual_${Date.now()}_by_${safeUserTag}`
 
-    // Insertar reserva asociada estrictamente al tenant autenticado
     let inserted = null
     const { data: insData, error: insertError } = await supabase
       .from('reservas')
@@ -1165,7 +856,6 @@ app.post('/admin/reservas', verifyTenantUser(supabase), requireColaboradorOrAdmi
         estado_pago: finalEstadoPago,
         monto_pagado: monto_pagado || 0,
         payment_id: paymentId,
-        negocio_id: req.negocio_id,
         creado_por: usuarioCreador
       }])
       .select()
@@ -1173,7 +863,6 @@ app.post('/admin/reservas', verifyTenantUser(supabase), requireColaboradorOrAdmi
 
     if (insertError) {
       console.warn('Error insertando con creado_por, reintentando fallback:', insertError.message)
-      // Fallback si la columna creado_por no existe aún en la tabla de Supabase
       const { data: insFallback, error: errFallback } = await supabase
         .from('reservas')
         .insert([{
@@ -1184,8 +873,7 @@ app.post('/admin/reservas', verifyTenantUser(supabase), requireColaboradorOrAdmi
           pagado: finalPagado,
           estado_pago: finalEstadoPago,
           monto_pagado: monto_pagado || 0,
-          payment_id: paymentId,
-          negocio_id: req.negocio_id
+          payment_id: paymentId
         }])
         .select()
         .single()
@@ -1211,7 +899,6 @@ app.post('/admin/reservas', verifyTenantUser(supabase), requireColaboradorOrAdmi
         estado_pago: finalEstadoPago,
         monto_pagado: monto_pagado || 0,
         payment_id: paymentId,
-        negocio_id: req.negocio_id,
         creado_por: usuarioCreador
       }
     } else {
@@ -1229,8 +916,8 @@ app.post('/admin/reservas', verifyTenantUser(supabase), requireColaboradorOrAdmi
   }
 })
 
-// PUT — Actualizar reserva (datos o estado de pago)
-app.put('/admin/reservas/:id', verifyTenantUser(supabase), requireColaboradorOrAdmin, async (req, res) => {
+// PUT — Actualizar reserva
+app.put('/admin/reservas/:id', verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   const { id } = req.params
   const { nombre, fecha, hora, cancha, pagado, estado_pago, monto_pagado } = req.body
   const canchaFinal = cancha || '1'
@@ -1238,28 +925,22 @@ app.put('/admin/reservas/:id', verifyTenantUser(supabase), requireColaboradorOrA
   const finalPagado = ['pagado', 'señado'].includes(finalEstadoPago)
 
   try {
-    // Validar superposición si se cambiaron fecha/hora/cancha
     if (fecha && hora) {
-      let checkQuery = supabase
+      const { data: existing } = await supabase
         .from('reservas')
         .select('id')
         .eq('fecha', fecha)
         .eq('hora', hora)
         .eq('cancha', canchaFinal)
         .neq('id', id)
+        .limit(1)
 
-      if (req.negocio_id) {
-        checkQuery = checkQuery.eq('negocio_id', req.negocio_id)
-      }
-
-      const { data: existing } = await checkQuery.limit(1)
       if (existing && existing.length > 0) {
         return res.status(400).json({ error: 'El turno ya se encuentra ocupado para esa fecha, hora y cancha.' })
       }
     }
 
-    // Actualizar garantizando que pertenezca al negocio autenticado
-    let updateQuery = supabase
+    const { error } = await supabase
       .from('reservas')
       .update({
         nombre,
@@ -1271,12 +952,6 @@ app.put('/admin/reservas/:id', verifyTenantUser(supabase), requireColaboradorOrA
         monto_pagado: monto_pagado || 0
       })
       .eq('id', id)
-
-    if (req.rol !== 'superadmin' && req.negocio_id) {
-      updateQuery = updateQuery.eq('negocio_id', req.negocio_id)
-    }
-
-    const { error } = await updateQuery
 
     if (error) {
       console.error('Error actualizando reserva:', error)
@@ -1291,17 +966,11 @@ app.put('/admin/reservas/:id', verifyTenantUser(supabase), requireColaboradorOrA
 })
 
 // DELETE — Eliminar reserva
-app.delete('/admin/reservas/:id', verifyTenantUser(supabase), requireColaboradorOrAdmin, async (req, res) => {
+app.delete('/admin/reservas/:id', verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   const { id } = req.params
 
   try {
-    let deleteQuery = supabase.from('reservas').delete().eq('id', id)
-
-    if (req.rol !== 'superadmin' && req.negocio_id) {
-      deleteQuery = deleteQuery.eq('negocio_id', req.negocio_id)
-    }
-
-    const { error } = await deleteQuery
+    const { error } = await supabase.from('reservas').delete().eq('id', id)
 
     if (error) {
       console.error('Error eliminando reserva:', error)
@@ -1316,9 +985,9 @@ app.delete('/admin/reservas/:id', verifyTenantUser(supabase), requireColaborador
 })
 
 // ============================
-// GESTIÓN DE CANCHAS Y DISPONIBILIDAD (COLABORADOR O ADMIN)
+// GESTIÓN DE CANCHAS
 // ============================
-app.get('/admin/canchas', verifyTenantUser(supabase), requireColaboradorOrAdmin, async (req, res) => {
+app.get('/admin/canchas', verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   try {
     const extras = getBusinessExtras()
     res.json(extras.canchas)
@@ -1328,8 +997,8 @@ app.get('/admin/canchas', verifyTenantUser(supabase), requireColaboradorOrAdmin,
   }
 })
 
-// Toggle disponibilidad de cancha por Colaborador o Admin
-app.put('/admin/canchas/:canchaId/disponibilidad', verifyTenantUser(supabase), requireColaboradorOrAdmin, async (req, res) => {
+// Toggle disponibilidad de cancha
+app.put('/admin/canchas/:canchaId/disponibilidad', verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   const { canchaId } = req.params
   const { activa, disponible } = req.body
 
@@ -1348,20 +1017,18 @@ app.put('/admin/canchas/:canchaId/disponibilidad', verifyTenantUser(supabase), r
     })
 
     if (!encontrada) {
-      return res.status(404).json({ error: 'Cancha no encontrada en este negocio' })
+      return res.status(404).json({ error: 'Cancha no encontrada' })
     }
 
     saveBusinessExtras({ canchas: canchasActualizadas })
 
-    if (req.negocio_id) {
-      try {
-        await supabase
-          .from('negocios')
-          .update({ canchas: canchasActualizadas })
-          .eq('id', req.negocio_id)
-      } catch (errSup) {
-        console.warn('Advertencia actualizando canchas en Supabase:', errSup.message)
+    try {
+      let { data: neg } = await supabase.from('negocios').select('id').limit(1).maybeSingle()
+      if (neg?.id) {
+        await supabase.from('negocios').update({ canchas: canchasActualizadas }).eq('id', neg.id)
       }
+    } catch (errSup) {
+      console.warn('Advertencia actualizando canchas en Supabase:', errSup.message)
     }
 
     res.json({
@@ -1375,8 +1042,8 @@ app.put('/admin/canchas/:canchaId/disponibilidad', verifyTenantUser(supabase), r
   }
 })
 
-// POST — Agregar nueva cancha (Solo Admin con validación de contraseña)
-app.post('/admin/canchas', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
+// POST — Agregar nueva cancha
+app.post('/admin/canchas', verifyAuth, requireAdmin, async (req, res) => {
   const { nombre, password, precio } = req.body
 
   if (!password) {
@@ -1388,14 +1055,10 @@ app.post('/admin/canchas', verifyTenantUser(supabase), requireAdmin, async (req,
   }
 
   try {
-    // 1. Validar contraseña del administrador
     let passwordValida = false
     const ADMIN_PASSWORD_GLOBAL = process.env.ADMIN_PASSWORD || 'admin123'
-    const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD || 'superadmin123'
 
-    if (req.user?.rol === 'superadmin' && password === SUPERADMIN_PASSWORD) {
-      passwordValida = true
-    } else if (password === ADMIN_PASSWORD_GLOBAL || password === '123456') {
+    if (password === ADMIN_PASSWORD_GLOBAL) {
       passwordValida = true
     } else if (req.user?.usuario_id) {
       const { data: usuario, error: uErr } = await supabase
@@ -1413,7 +1076,6 @@ app.post('/admin/canchas', verifyTenantUser(supabase), requireAdmin, async (req,
       return res.status(403).json({ error: 'Contraseña de administrador incorrecta. No se realizaron cambios.' })
     }
 
-    // 2. Obtener lista actual de canchas
     const extras = getBusinessExtras()
     const canchasActuales = extras.canchas || []
     const nombreLimpio = nombre.trim()
@@ -1439,20 +1101,18 @@ app.post('/admin/canchas', verifyTenantUser(supabase), requireAdmin, async (req,
     const canchasActualizadas = [...canchasActuales, nuevaCancha]
     saveBusinessExtras({ canchas: canchasActualizadas })
 
-    if (req.negocio_id) {
-      try {
-        await supabase
-          .from('negocios')
-          .update({ canchas: canchasActualizadas })
-          .eq('id', req.negocio_id)
-      } catch (errSup) {
-        console.warn('Advertencia actualizando canchas en Supabase:', errSup.message)
+    try {
+      let { data: neg } = await supabase.from('negocios').select('id').limit(1).maybeSingle()
+      if (neg?.id) {
+        await supabase.from('negocios').update({ canchas: canchasActualizadas }).eq('id', neg.id)
       }
+    } catch (errSup) {
+      console.warn('Advertencia actualizando canchas en Supabase:', errSup.message)
     }
 
     res.json({
       ok: true,
-      mensaje: `Cancha "${nombreLimpio}" agregada exitosamente`,
+      mensaje: 'Cancha creada exitosamente',
       cancha: nuevaCancha,
       canchas: canchasActualizadas
     })
@@ -1462,8 +1122,8 @@ app.post('/admin/canchas', verifyTenantUser(supabase), requireAdmin, async (req,
   }
 })
 
-// DELETE — Eliminar cancha (Solo Admin con validación de contraseña)
-app.delete('/admin/canchas/:canchaId', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
+// DELETE — Eliminar cancha
+app.delete('/admin/canchas/:canchaId', verifyAuth, requireAdmin, async (req, res) => {
   const { canchaId } = req.params
   const { password } = req.body
 
@@ -1474,11 +1134,8 @@ app.delete('/admin/canchas/:canchaId', verifyTenantUser(supabase), requireAdmin,
   try {
     let passwordValida = false
     const ADMIN_PASSWORD_GLOBAL = process.env.ADMIN_PASSWORD || 'admin123'
-    const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD || 'superadmin123'
 
-    if (req.user?.rol === 'superadmin' && password === SUPERADMIN_PASSWORD) {
-      passwordValida = true
-    } else if (password === ADMIN_PASSWORD_GLOBAL || password === '123456') {
+    if (password === ADMIN_PASSWORD_GLOBAL) {
       passwordValida = true
     } else if (req.user?.usuario_id) {
       const { data: usuario, error: uErr } = await supabase
@@ -1505,15 +1162,13 @@ app.delete('/admin/canchas/:canchaId', verifyTenantUser(supabase), requireAdmin,
     const canchasActualizadas = canchasActuales.filter(c => String(c.id) !== String(canchaId))
     saveBusinessExtras({ canchas: canchasActualizadas })
 
-    if (req.negocio_id) {
-      try {
-        await supabase
-          .from('negocios')
-          .update({ canchas: canchasActualizadas })
-          .eq('id', req.negocio_id)
-      } catch (errSup) {
-        console.warn('Advertencia eliminando cancha en Supabase:', errSup.message)
+    try {
+      let { data: neg } = await supabase.from('negocios').select('id').limit(1).maybeSingle()
+      if (neg?.id) {
+        await supabase.from('negocios').update({ canchas: canchasActualizadas }).eq('id', neg.id)
       }
+    } catch (errSup) {
+      console.warn('Advertencia eliminando cancha en Supabase:', errSup.message)
     }
 
     res.json({
@@ -1530,33 +1185,22 @@ app.delete('/admin/canchas/:canchaId', verifyTenantUser(supabase), requireAdmin,
 // ============================
 // CONFIGURACIÓN DEL NEGOCIO (SOLO ADMIN)
 // ============================
-app.get('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
+app.get('/admin/config', verifyAuth, requireAdmin, async (req, res) => {
   try {
-    const targetId = req.negocio_id || '22222222-2222-2222-2222-222222222222'
-    let { data: negocio, error } = await supabase
+    let { data: negocio } = await supabase
       .from('negocios')
-      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
-      .eq('id', targetId)
+      .select('id, nombre, telefono, direccion, plan, activo, monto_sena, precio_total, mp_access_token')
+      .limit(1)
       .maybeSingle()
-
-    if (!negocio) {
-      const fallback = await supabase
-        .from('negocios')
-        .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
-        .eq('id', '22222222-2222-2222-2222-222222222222')
-        .maybeSingle()
-      negocio = fallback.data
-    }
 
     const extras = getBusinessExtras()
 
     if (!negocio) {
       return res.json({
-        id: targetId,
-        nombre: 'ChavoF651',
-        slug: 'reservas-futbol',
+        id: '1',
+        nombre: 'Cancha Fútbol',
         telefono: '3804201334',
-        direccion: 'san martin',
+        direccion: 'San Martín',
         monto_sena: 100,
         precio_total: 100,
         canchas: extras.canchas,
@@ -1567,13 +1211,11 @@ app.get('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, r
 
     res.json({
       id: negocio.id,
-      nombre: negocio.nombre || 'ChavoF651',
-      slug: negocio.slug,
+      nombre: negocio.nombre || 'Cancha Fútbol',
       telefono: negocio.telefono || '',
       direccion: negocio.direccion || '',
       monto_sena: negocio.monto_sena || 100,
       precio_total: negocio.precio_total || 100,
-      modo_prueba: negocio.modo_prueba,
       canchas: extras.canchas,
       horarios: extras.horarios,
       tiene_mp_token: !!negocio.mp_access_token
@@ -1584,7 +1226,7 @@ app.get('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, r
   }
 })
 
-app.put('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
+app.put('/admin/config', verifyAuth, requireAdmin, async (req, res) => {
   const { nombre, monto_sena, precio_total, telefono, direccion, horarios, mp_access_token } = req.body
 
   try {
@@ -1600,26 +1242,28 @@ app.put('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, r
       saveBusinessExtras({ horarios: normalizarHorarios(horarios) })
     }
 
-    const targetId = req.negocio_id || '22222222-2222-2222-2222-222222222222'
+    let { data: existingNeg } = await supabase.from('negocios').select('id').limit(1).maybeSingle()
+    let savedNegocio = null
 
-    // Actualizar en Supabase
-    let { data, error } = await supabase
-      .from('negocios')
-      .update(updateData)
-      .eq('id', targetId)
-      .select()
+    if (existingNeg?.id) {
+      const { data, error } = await supabase
+        .from('negocios')
+        .update(updateData)
+        .eq('id', existingNeg.id)
+        .select()
 
-    if (error) {
-      console.error('Error actualizando negocio en Supabase:', error)
-      return res.status(500).json({ error: error.message })
+      if (error) {
+        console.error('Error actualizando negocio en Supabase:', error)
+      } else {
+        savedNegocio = data?.[0]
+      }
     }
 
-    const savedNegocio = (data && data[0]) ? data[0] : null
     const extras = getBusinessExtras()
 
     const fullConfig = {
-      id: targetId,
-      nombre: savedNegocio?.nombre || updateData.nombre,
+      id: savedNegocio?.id || '1',
+      nombre: savedNegocio?.nombre || updateData.nombre || 'Cancha Fútbol',
       telefono: savedNegocio?.telefono !== undefined ? savedNegocio.telefono : (updateData.telefono || ''),
       direccion: savedNegocio?.direccion !== undefined ? savedNegocio.direccion : (updateData.direccion || ''),
       monto_sena: savedNegocio?.monto_sena !== undefined ? savedNegocio.monto_sena : updateData.monto_sena,
@@ -1644,12 +1288,11 @@ app.put('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, r
 // ============================
 // COLABORADORES (SOLO ADMIN)
 // ============================
-app.get('/admin/colaboradores', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
+app.get('/admin/colaboradores', verifyAuth, requireAdmin, async (req, res) => {
   try {
     const { data: usuarios, error } = await supabase
       .from('usuarios')
       .select('id, email, nombre, rol, activo, created_at')
-      .eq('negocio_id', req.negocio_id)
       .order('created_at', { ascending: false })
 
     if (error) return res.status(500).json({ error: error.message })
@@ -1659,7 +1302,7 @@ app.get('/admin/colaboradores', verifyTenantUser(supabase), requireAdmin, async 
   }
 })
 
-app.post('/admin/colaboradores', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
+app.post('/admin/colaboradores', verifyAuth, requireAdmin, async (req, res) => {
   const { nombre, email, password } = req.body
   if (!nombre || !email || !password) {
     return res.status(400).json({ error: 'Todos los campos son obligatorios' })
@@ -1673,7 +1316,6 @@ app.post('/admin/colaboradores', verifyTenantUser(supabase), requireAdmin, async
         email,
         password,
         rol: 'colaborador',
-        negocio_id: req.negocio_id,
         activo: true
       }])
       .select('id, email, nombre, rol, activo, created_at')
@@ -1692,11 +1334,10 @@ app.post('/admin/colaboradores', verifyTenantUser(supabase), requireAdmin, async
   }
 })
 
-app.delete('/admin/colaboradores/:id', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
+app.delete('/admin/colaboradores/:id', verifyAuth, requireAdmin, async (req, res) => {
   const { id } = req.params
 
   try {
-    // Evitar autoeliminación
     if (req.user?.usuario_id === id) {
       return res.status(400).json({ error: 'No podés eliminar tu propio usuario' })
     }
@@ -1705,7 +1346,6 @@ app.delete('/admin/colaboradores/:id', verifyTenantUser(supabase), requireAdmin,
       .from('usuarios')
       .delete()
       .eq('id', id)
-      .eq('negocio_id', req.negocio_id)
 
     if (error) return res.status(500).json({ error: error.message })
     res.json({ ok: true })
@@ -1715,431 +1355,11 @@ app.delete('/admin/colaboradores/:id', verifyTenantUser(supabase), requireAdmin,
 })
 
 // ============================
-// SUPER ADMIN: ENDPOINTS MAESTROS
-// ============================
-
-// Login SuperAdmin dedicado
-app.post('/api/superadmin/login', (req, res) => {
-  const { email, password } = req.body
-  const superAdminEmail = process.env.SUPERADMIN_EMAIL || 'chavow5@superadmin'
-  const superAdminPassword = process.env.SUPERADMIN_PASSWORD || 'superadmin123'
-
-  if (email === superAdminEmail && password === superAdminPassword) {
-    const token = jwt.sign(
-      { rol: 'superadmin', email: superAdminEmail, nombre: 'Super Admin' },
-      JWT_SECRET,
-      { expiresIn: '8h' }
-    )
-    return res.json({
-      ok: true,
-      token,
-      user: { nombre: 'Super Administrador', email: superAdminEmail, rol: 'superadmin' }
-    })
-  }
-
-  res.status(401).json({ error: 'Credenciales de SuperAdmin inválidas' })
-})
-
-// Métricas Globales para Super Admin
-app.get('/api/superadmin/metricas', requireSuperAdmin, async (req, res) => {
-  try {
-    const [{ count: totalNegocios }, { count: totalReservas }, { data: negocios }] = await Promise.all([
-      supabase.from('negocios').select('*', { count: 'exact', head: true }),
-      supabase.from('reservas').select('*', { count: 'exact', head: true }),
-      supabase.from('negocios').select('id, nombre, activo, modo_prueba')
-    ])
-
-    const { data: reservasRecientes } = await supabase
-      .from('reservas')
-      .select('monto_pagado, estado_pago, fecha')
-      .limit(1000)
-
-    const mesActual = new Date().toISOString().slice(0, 7)
-    const reservasMes = (reservasRecientes || []).filter(r => r.fecha?.startsWith(mesActual)).length
-
-    const totalRecaudado = (reservasRecientes || [])
-      .filter(r => ['pagado', 'señado'].includes(r.estado_pago))
-      .reduce((sum, r) => sum + (Number(r.monto_pagado) || 100), 0)
-
-    res.json({
-      totalNegocios: totalNegocios || negocios?.length || 2,
-      negociosActivos: (negocios || []).filter(n => n.activo).length || 2,
-      totalReservas: totalReservas || reservasRecientes?.length || 0,
-      reservasMes,
-      totalRecaudado
-    })
-  } catch (err) {
-    console.error('Error calculando métricas SuperAdmin:', err)
-    res.status(500).json({ error: 'Error al calcular métricas' })
-  }
-})
-
-// Listado de Negocios para Super Admin
-app.get('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
-  try {
-    let { data: negocios, error } = await supabase
-      .from('negocios')
-      .select('id, nombre, slug, email_contacto, telefono, dni, direccion, plan, activo, modo_prueba, monto_sena, precio_mensual, estado_suscripcion, dia_vencimiento, ultimo_pago, mp_access_token, canchas, created_at')
-      .order('created_at', { ascending: false })
-
-    // Fallback si aún no se corrió la migración de nuevas columnas
-    if (error) {
-      const retry = await supabase
-        .from('negocios')
-        .select('id, nombre, slug, email_contacto, plan, activo, modo_prueba, monto_sena, mp_access_token, created_at')
-        .order('created_at', { ascending: false })
-      negocios = retry.data || []
-    }
-
-    if (!negocios || negocios.length === 0) {
-      return res.json([
-        {
-          id: '11111111-1111-1111-1111-111111111111',
-          nombre: 'Pruebas-Reservas',
-          slug: 'pruebas-reservas',
-          telefono: '3804201334',
-          dni: '',
-          direccion: 'Cancha Demo Central',
-          plan: 'demo',
-          activo: true,
-          modo_prueba: true,
-          monto_sena: 100,
-          precio_mensual: 0,
-          estado_suscripcion: 'al_dia',
-          dia_vencimiento: 10,
-          canchas: normalizarCanchas(null),
-          total_reservas: 0
-        },
-        {
-          id: '22222222-2222-2222-2222-222222222222',
-          nombre: 'Reservas Fútbol',
-          slug: 'reservas-futbol',
-          telefono: '3804000000',
-          dni: '12345678',
-          direccion: 'Av. San Martín 1234',
-          plan: 'pro',
-          activo: true,
-          modo_prueba: false,
-          monto_sena: 100,
-          precio_mensual: 25000,
-          estado_suscripcion: 'al_dia',
-          dia_vencimiento: 10,
-          canchas: normalizarCanchas(null),
-          horarios: normalizarHorarios(null),
-          total_reservas: 0
-        }
-      ])
-    }
-
-    // Obtener conteo de reservas por negocio
-    const { data: reservas } = await supabase.from('reservas').select('negocio_id')
-    const conteoPorNegocio = (reservas || []).reduce((acc, r) => {
-      acc[r.negocio_id] = (acc[r.negocio_id] || 0) + 1
-      return acc
-    }, {})
-
-    const enriquecidos = negocios.map(n => ({
-      ...n,
-      telefono: n.telefono || '',
-      dni: n.dni || '',
-      direccion: n.direccion || '',
-      precio_mensual: Number(n.precio_mensual) || 25000,
-      estado_suscripcion: n.estado_suscripcion || 'al_dia',
-      dia_vencimiento: n.dia_vencimiento || 10,
-      canchas: normalizarCanchas(n.canchas),
-      horarios: normalizarHorarios(n.horarios),
-      total_reservas: conteoPorNegocio[n.id] || 0
-    }))
-
-    res.json(enriquecidos)
-  } catch (err) {
-    console.error('Error en listado de negocios SuperAdmin:', err)
-    res.status(500).json({ error: 'Error al listar negocios' })
-  }
-})
-
-// Crear nuevo negocio desde Super Admin
-app.post('/api/superadmin/negocios', requireSuperAdmin, async (req, res) => {
-  const {
-    nombre,
-    slug,
-    email_contacto,
-    telefono,
-    dni,
-    direccion,
-    plan,
-    modo_prueba,
-    monto_sena,
-    precio_mensual,
-    dia_vencimiento,
-    canchas,
-    cantidad_canchas,
-    horarios,
-    admin_email,
-    admin_password,
-    admin_nombre,
-    mp_access_token
-  } = req.body
-
-  if (!nombre || !slug || !admin_email || !admin_password) {
-    return res.status(400).json({ error: 'Nombre, slug, email de admin y contraseña son requeridos' })
-  }
-
-  const slugNormalizado = slug.toLowerCase().trim().replace(/[^a-z0-9-_]/g, '-')
-  const canchasIniciales = normalizarCanchas(canchas || (cantidad_canchas ? Number(cantidad_canchas) : 2))
-  const horariosIniciales = normalizarHorarios(horarios)
-
-  try {
-    // 1. Crear Negocio
-    const insertPayload = {
-      nombre,
-      slug: slugNormalizado,
-      email_contacto: email_contacto || admin_email,
-      telefono: telefono || null,
-      dni: dni || null,
-      direccion: direccion || null,
-      plan: plan || 'free',
-      modo_prueba: !!modo_prueba,
-      monto_sena: Number(monto_sena) || 100,
-      precio_mensual: Number(precio_mensual) || 25000,
-      dia_vencimiento: Number(dia_vencimiento) || 10,
-      estado_suscripcion: 'al_dia',
-      canchas: canchasIniciales,
-      horarios: horariosIniciales,
-      mp_access_token: mp_access_token ? mp_access_token.trim() : null,
-      activo: true
-    }
-
-    let { data: negocio, error: negErr } = await supabase
-      .from('negocios')
-      .insert([insertPayload])
-      .select()
-      .single()
-
-    if (negErr) {
-      if (negErr.code === '23505') {
-        return res.status(400).json({ error: 'El slug o email ya está en uso por otro negocio' })
-      }
-      // Fallback si faltan columnas nuevas en DB
-      delete insertPayload.telefono
-      delete insertPayload.dni
-      delete insertPayload.direccion
-      delete insertPayload.precio_mensual
-      delete insertPayload.dia_vencimiento
-      delete insertPayload.estado_suscripcion
-      delete insertPayload.canchas
-      delete insertPayload.horarios
-      const retry = await supabase.from('negocios').insert([insertPayload]).select().single()
-      if (retry.error) return res.status(500).json({ error: retry.error.message })
-      negocio = retry.data
-    }
-
-    // 2. Crear Administrador inicial del negocio
-    const { error: userErr } = await supabase
-      .from('usuarios')
-      .insert([{
-        negocio_id: negocio.id,
-        email: admin_email,
-        password: admin_password,
-        nombre: admin_nombre || `Admin ${nombre}`,
-        rol: 'admin',
-        activo: true
-      }])
-
-    if (userErr) {
-      console.warn('Aviso al crear admin de negocio:', userErr.message)
-    }
-
-    console.log('🎉 Nuevo negocio creado por SuperAdmin:', negocio.nombre, negocio.slug)
-    res.json({ ok: true, negocio: { ...negocio, canchas: canchasIniciales, horarios: horariosIniciales } })
-  } catch (err) {
-    console.error('Error creando negocio desde SuperAdmin:', err)
-    res.status(500).json({ error: 'Error al crear el negocio' })
-  }
-})
-
-// Activar/Desactivar o Actualizar Negocio
-app.put('/api/superadmin/negocios/:id', requireSuperAdmin, async (req, res) => {
-  const { id } = req.params
-  const {
-    nombre,
-    slug,
-    plan,
-    activo,
-    modo_prueba,
-    monto_sena,
-    precio_mensual,
-    estado_suscripcion,
-    dia_vencimiento,
-    email_contacto,
-    telefono,
-    dni,
-    direccion,
-    canchas,
-    horarios,
-    mp_access_token
-  } = req.body
-
-  try {
-    const updateData = {}
-    if (nombre !== undefined) updateData.nombre = nombre
-    if (slug !== undefined) updateData.slug = slug.toLowerCase().trim().replace(/[^a-z0-9-_]/g, '-')
-    if (plan !== undefined) updateData.plan = plan
-    if (activo !== undefined) updateData.activo = activo
-    if (modo_prueba !== undefined) updateData.modo_prueba = modo_prueba
-    if (monto_sena !== undefined) updateData.monto_sena = Number(monto_sena)
-    if (precio_mensual !== undefined) updateData.precio_mensual = Number(precio_mensual)
-    if (estado_suscripcion !== undefined) updateData.estado_suscripcion = estado_suscripcion
-    if (dia_vencimiento !== undefined) updateData.dia_vencimiento = Number(dia_vencimiento)
-    if (email_contacto !== undefined) updateData.email_contacto = email_contacto
-    if (telefono !== undefined) updateData.telefono = telefono || null
-    if (dni !== undefined) updateData.dni = dni || null
-    if (direccion !== undefined) updateData.direccion = direccion || null
-    if (canchas !== undefined) updateData.canchas = normalizarCanchas(canchas)
-    if (horarios !== undefined) updateData.horarios = normalizarHorarios(horarios)
-    if (mp_access_token !== undefined) updateData.mp_access_token = mp_access_token ? mp_access_token.trim() : null
-
-    let { error } = await supabase
-      .from('negocios')
-      .update(updateData)
-      .eq('id', id)
-
-    if (error) {
-      console.warn('Aviso update negocios fallback:', error.message)
-      delete updateData.telefono
-      delete updateData.dni
-      delete updateData.direccion
-      delete updateData.precio_mensual
-      delete updateData.dia_vencimiento
-      delete updateData.canchas
-      delete updateData.horarios
-      const retry = await supabase.from('negocios').update(updateData).eq('id', id)
-      if (retry.error) return res.status(500).json({ error: retry.error.message })
-    }
-    res.json({ ok: true })
-  } catch (err) {
-    res.status(500).json({ error: 'Error al actualizar negocio' })
-  }
-})
-
-// ============================
-// COBRANZAS SAAS: REGISTRO DE PAGOS DE MENSUALIDADES
-// ============================
-// Listar historial de pagos de mensualidades
-app.get('/api/superadmin/suscripciones/pagos', requireSuperAdmin, async (req, res) => {
-  const { negocio_id } = req.query
-
-  try {
-    let query = supabase
-      .from('pagos_suscripcion')
-      .select('id, negocio_id, mes, monto, fecha_pago, metodo, comprobante, notas, estado, created_at, negocios(id, nombre, slug)')
-      .order('fecha_pago', { ascending: false })
-
-    if (negocio_id) {
-      query = query.eq('negocio_id', negocio_id)
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      // Fallback si la tabla aún no se creó
-      return res.json([])
-    }
-
-    res.json(data || [])
-  } catch (err) {
-    console.error('Error listando pagos de suscripción:', err)
-    res.status(500).json({ error: 'Error al listar pagos' })
-  }
-})
-
-// Registrar Cobro de Mensualidad a un Negocio
-app.post('/api/superadmin/suscripciones/pagar', requireSuperAdmin, async (req, res) => {
-  const { negocio_id, mes, monto, metodo, comprobante, notas } = req.body
-
-  if (!negocio_id || !monto) {
-    return res.status(400).json({ error: 'negocio_id y monto son requeridos' })
-  }
-
-  const mesFinal = mes || new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' }).format(new Date())
-
-  try {
-    // 1. Insertar comprobante de pago
-    const { data: pago, error: pErr } = await supabase
-      .from('pagos_suscripcion')
-      .insert([{
-        negocio_id,
-        mes: mesFinal,
-        monto: Number(monto),
-        metodo: metodo || 'Transferencia',
-        comprobante: comprobante || null,
-        notas: notas || null,
-        estado: 'pagado'
-      }])
-      .select()
-      .single()
-
-    if (pErr) {
-      console.warn('Aviso al insertar pago suscripcion:', pErr.message)
-    }
-
-    // 2. Actualizar estado del negocio a "al_dia" y fecha de ultimo pago
-    await supabase
-      .from('negocios')
-      .update({
-        estado_suscripcion: 'al_dia',
-        ultimo_pago: new Date().toISOString()
-      })
-      .eq('id', negocio_id)
-
-    res.json({ ok: true, pago, mensaje: `Cobro de ${mesFinal} registrado exitosamente` })
-  } catch (err) {
-    console.error('Error registrando pago de mensualidad:', err)
-    res.status(500).json({ error: 'Error al registrar cobro' })
-  }
-})
-
-// Eliminar Negocio
-app.delete('/api/superadmin/negocios/:id', requireSuperAdmin, async (req, res) => {
-  const { id } = req.params
-
-  try {
-    const { error } = await supabase.from('negocios').delete().eq('id', id)
-    if (error) return res.status(500).json({ error: error.message })
-    res.json({ ok: true })
-  } catch (err) {
-    res.status(500).json({ error: 'Error al eliminar negocio' })
-  }
-})
-
-// Explorador Global de Reservas
-app.get('/api/superadmin/reservas', requireSuperAdmin, async (req, res) => {
-  const { negocio_id } = req.query
-
-  try {
-    let query = supabase
-      .from('reservas')
-      .select('*')
-      .order('fecha', { ascending: false })
-
-    if (negocio_id) {
-      query = query.eq('negocio_id', negocio_id)
-    }
-
-    const { data, error } = await query
-    if (error) return res.status(500).json({ error: error.message })
-    res.json(data || [])
-  } catch (err) {
-    res.status(500).json({ error: 'Error al listar reservas globales' })
-  }
-})
-
-// ============================
 // START SERVER
 // ============================
 const PORT = process.env.PORT || 3000
 const server = app.listen(PORT, () =>
-  console.log(`🚀 Backend Multi-Tenant activo en puerto ${PORT}`)
+  console.log(`🚀 Backend activo en puerto ${PORT}`)
 ).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`\n❌ Error: El puerto ${PORT} ya está siendo utilizado por otra instancia de Node.`)
@@ -2150,4 +1370,3 @@ const server = app.listen(PORT, () =>
 })
 
 export { app, server }
-

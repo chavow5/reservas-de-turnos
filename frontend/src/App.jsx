@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { TenantProvider } from './context/TenantContext'
+import { BusinessProvider } from './context/BusinessContext'
 import { AuthProvider } from './context/AuthContext'
 import Layout from './components/Layout'
 import ReservaTurno from './components/ReservaTurno'
@@ -21,24 +21,17 @@ const LoadingFallback = () => (
 export default function App() {
   return (
     <BrowserRouter>
-      <TenantProvider>
+      <BusinessProvider>
         <AuthProvider>
           <Layout>
             <Suspense fallback={<LoadingFallback />}>
               <Routes>
-                {/* Rutas directas para un solo negocio */}
+                {/* Rutas directas del negocio */}
                 <Route path="/" element={<ReservaTurno />} />
                 <Route path="/success" element={<Success />} />
                 <Route path="/sorteo" element={<Sorteo />} />
                 <Route path="/admin" element={<AdminLogin />} />
                 <Route path="/dashboard" element={<Dashboard />} />
-
-                {/* Compatibilidad con enlaces previos que contenían slug */}
-                <Route path="/:slug" element={<ReservaTurno />} />
-                <Route path="/:slug/success" element={<Success />} />
-                <Route path="/:slug/sorteo" element={<Sorteo />} />
-                <Route path="/:slug/admin" element={<AdminLogin />} />
-                <Route path="/:slug/dashboard" element={<Dashboard />} />
 
                 {/* 404 Wildcard */}
                 <Route path="*" element={<Navigate to="/" replace />} />
@@ -46,7 +39,7 @@ export default function App() {
             </Suspense>
           </Layout>
         </AuthProvider>
-      </TenantProvider>
+      </BusinessProvider>
     </BrowserRouter>
   )
 }

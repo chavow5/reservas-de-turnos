@@ -45,8 +45,7 @@ export function AuthProvider({ children }) {
     token,
     user,
     isAuthenticated: !!token,
-    isSuperAdmin: user?.rol === 'superadmin',
-    isAdmin: user?.rol === 'admin' || user?.rol === 'superadmin',
+    isAdmin: user?.rol === 'admin',
     isColaborador: user?.rol === 'colaborador',
     login,
     logout

@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 export default function AdminLogin() {
-  const { slug, nombreNegocio } = useTenant()
+  const { nombreNegocio } = useTenant()
   const { login } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

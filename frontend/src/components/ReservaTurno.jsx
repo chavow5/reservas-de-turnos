@@ -10,7 +10,7 @@ import SelectorHorario from './SelectorHorario'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 export default function ReservaTurno() {
-  const { slug, nombreNegocio, telefono, direccion, montoSena, precioTotal, modoPrueba, canchasActivas = [], horarios = [], error: tenantError, loading: tenantLoading } = useTenant()
+  const { nombreNegocio, telefono, direccion, montoSena, precioTotal, canchasActivas = [], horarios = [], error: tenantError, loading: tenantLoading } = useTenant()
   const navigate = useNavigate()
 
   const [reservas, setReservas] = useState([])
@@ -90,7 +90,7 @@ export default function ReservaTurno() {
   }
 
   // ============================
-  // TAREA B: CHEQUEO DE BASE ACTIVA ANTES DE RESERVAR / PAGAR
+  // CHEQUEO DE BASE ACTIVA ANTES DE RESERVAR / PAGAR
   // ============================
   const verificarBaseActiva = async () => {
     setDbChecking(true)
@@ -132,33 +132,15 @@ export default function ReservaTurno() {
       setLoading(true)
       setTexto("Verificando estado del servidor...")
 
-      // Chequear si la base de datos está activa
       const estaActiva = await verificarBaseActiva()
 
       if (!estaActiva) {
-        // Bloquear el paso a pago bajo cualquier circunstancia
         setLoading(false)
         setDbError("No pudimos conectar con la base de datos (puede estar iniciándose). Por favor probá de nuevo en unos segundos.")
         return
       }
 
-      // CASO 1: MODO PRUEBA (Confirmación directa sin Mercado Pago)
-      if (modoPrueba) {
-        setTexto("Confirmando reserva de prueba...")
-        const res = await axios.post(`${API_URL}/api/demo/reservar`, {
-          nombre: form.nombre,
-          cancha: form.cancha,
-          fecha: form.fecha,
-          hora: form.hora
-        })
-
-        if (res.data.ok) {
-          navigate(`/success?nombre=${encodeURIComponent(form.nombre)}&fecha=${form.fecha}&hora=${form.hora}&cancha=${form.cancha}&demo=true`)
-          return
-        }
-      }
-
-      // CASO 2: PRODUCCIÓN (Mercado Pago directo)
+      // Conexión con Mercado Pago directo
       setTexto("Conectando con Mercado Pago...")
 
       const res = await axios.post(`${API_URL}/create-preference`, {
@@ -170,9 +152,6 @@ export default function ReservaTurno() {
 
       if (res.data && res.data.init_point) {
         setTexto("Abriendo Mercado Pago...")
-        // Redirección directa en la misma ventana.
-        // Esto permite que tanto en Android como en iOS el sistema operativo abra
-        // directamente la aplicación de Mercado Libre o Mercado Pago instalada.
         window.location.href = res.data.init_point
         return
       } else {
@@ -192,9 +171,12 @@ export default function ReservaTurno() {
   useEffect(() => {
     if (!loading) return
 
-    const mensajes = modoPrueba
-      ? ["Verificando turno...", "Guardando reserva de prueba...", "Cargando confirmación..."]
-      : ["Preparando pago...", "Conectando con MercadoPago...", "Cargando reserva...", "Redirigiendo..."]
+    const mensajes = [
+      "Preparando pago...",
+      "Conectando con MercadoPago...",
+      "Cargando reserva...",
+      "Redirigiendo..."
+    ]
 
     let i = 0
     const intervalo = setInterval(() => {
@@ -203,7 +185,7 @@ export default function ReservaTurno() {
     }, 1500)
 
     return () => clearInterval(intervalo)
-  }, [loading, modoPrueba])
+  }, [loading])
 
   if (tenantLoading) {
     return (
@@ -234,19 +216,6 @@ export default function ReservaTurno() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-12 pt-4 sm:pt-8 px-3 sm:px-4">
       <div className="max-w-2xl mx-auto">
-        
-        {/* BANNER MODO DEMO / PRUEBAS */}
-        {modoPrueba && (
-          <div className="bg-amber-50 border border-amber-200 p-4 sm:p-5 rounded-2xl mb-4 sm:mb-6 text-amber-900 shadow-sm flex items-start gap-3">
-            <div>
-              <p className="font-bold text-sm sm:text-base">Modo Demostración Activo</p>
-              <p className="text-xs sm:text-sm opacity-90 mt-0.5">
-                Esta es una vista previa de prueba para clientes. Podés reservar turnos directamente 
-                <strong> sin pasar por Mercado Pago</strong>.
-              </p>
-            </div>
-          </div>
-        )}
 
         {/* ALERTA DE ERROR DE BASE DE DATOS */}
         {dbError && (
@@ -333,7 +302,7 @@ export default function ReservaTurno() {
             return (
               <div className="bg-gray-100 border border-gray-200 rounded-2xl p-4 sm:p-5 mb-8 text-gray-800 animate-fade-in">
                 <p className="font-medium mb-2.5 text-xs sm:text-sm text-gray-600">
-                  {modoPrueba ? 'Reserva de prueba (sin costo real).' : 'La seña se abona online para asegurar tu turno.'}
+                  La seña se abona online para asegurar tu turno.
                 </p>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
@@ -366,11 +335,7 @@ export default function ReservaTurno() {
           <button
             type="submit"
             disabled={loading || !form.nombre || !form.fecha || !form.hora}
-            className={`w-full py-3.5 rounded-xl text-white font-bold text-lg shadow-sm transition-all active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none ${
-              modoPrueba
-                ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200'
-                : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
-            }`}
+            className="w-full py-3.5 rounded-xl text-white font-bold text-lg shadow-sm transition-all active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none bg-blue-600 hover:bg-blue-700 shadow-blue-200"
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
@@ -380,8 +345,6 @@ export default function ReservaTurno() {
                 </svg>
                 {texto}
               </span>
-            ) : modoPrueba ? (
-              "Confirmar Turno (Modo Prueba)"
             ) : (
               "Pagar seña de reserva"
             )}

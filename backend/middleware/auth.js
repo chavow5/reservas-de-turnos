@@ -3,9 +3,9 @@ import jwt from 'jsonwebtoken'
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-cambiar-en-produccion'
 
 /**
- * Middleware para validar que el usuario es Super Administrador
+ * Middleware para validar autenticación de usuarios administradores o colaboradores del negocio
  */
-export const requireSuperAdmin = (req, res, next) => {
+export const verifyAuth = (req, res, next) => {
   try {
     const auth = req.headers.authorization
     if (!auth || !auth.startsWith('Bearer ')) {
@@ -20,15 +20,13 @@ export const requireSuperAdmin = (req, res, next) => {
       return res.status(401).json({ error: 'Token inválido o expirado' })
     }
 
-    if (decoded.rol !== 'superadmin') {
-      return res.status(403).json({ error: 'Acceso denegado: Se requiere rol de Super Administrador' })
-    }
-
     req.user = decoded
-    req.rol = 'superadmin'
+    req.rol = decoded.rol || 'colaborador'
+
     next()
   } catch (err) {
-    console.error('Error en middleware requireSuperAdmin:', err)
-    return res.status(500).json({ error: 'Error de autenticación SuperAdmin' })
+    console.error('Error en middleware verifyAuth:', err)
+    return res.status(500).json({ error: 'Error interno de autenticación' })
   }
 }
+

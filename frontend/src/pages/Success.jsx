@@ -6,13 +6,12 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 export default function Success() {
   const [searchParams] = useSearchParams()
-  const { slug, nombreNegocio, telefono } = useTenant()
+  const { nombreNegocio, telefono } = useTenant()
 
   const nombre = searchParams.get('nombre')
   const fecha = searchParams.get('fecha')
   const hora = searchParams.get('hora')
   const cancha = searchParams.get('cancha')
-  const isDemo = searchParams.get('demo') === 'true'
   const mpUrl = searchParams.get('mp_url')
 
   const paymentId = searchParams.get('payment_id') || searchParams.get('collection_id')
@@ -29,7 +28,7 @@ export default function Success() {
 
   // Confirmar reserva automáticamente al volver de Mercado Pago con pago aprobado
   useEffect(() => {
-    if (isApproved && hasData && !isDemo && !confirmedRef.current) {
+    if (isApproved && hasData && !confirmedRef.current) {
       confirmedRef.current = true
       setConfirmando(true)
 
@@ -46,8 +45,7 @@ export default function Success() {
           hora,
           cancha,
           external_reference: externalReference,
-          merchant_order_id: searchParams.get('merchant_order_id'),
-          slug
+          merchant_order_id: searchParams.get('merchant_order_id')
         })
       })
         .then(res => res.json())
@@ -63,7 +61,7 @@ export default function Success() {
           setConfirmando(false)
         })
     }
-  }, [isApproved, hasData, isDemo, paymentId, status, collectionStatus, nombre, fecha, hora, cancha, externalReference, slug])
+  }, [isApproved, hasData, paymentId, status, collectionStatus, nombre, fecha, hora, cancha, externalReference])
 
   // Número de WhatsApp dinámico del negocio
   const whatsappNumber = telefono || '5493804201334'
@@ -86,13 +84,7 @@ export default function Success() {
     <div className="min-h-screen bg-slate-50 font-sans pb-12 pt-10 px-4">
       <div className="max-w-xl mx-auto animate-fade-in">
         
-        {isDemo && (
-          <div className="bg-amber-100 border border-amber-300 text-amber-900 p-4 rounded-2xl mb-6 text-center font-bold text-sm shadow-sm">
-            Esta es una confirmación de prueba generada en Modo Demo.
-          </div>
-        )}
-
-        {mpUrl && !isDemo && (
+        {mpUrl && (
           <div className="bg-blue-50 border border-blue-200 text-blue-900 p-4 rounded-2xl mb-6 text-center font-medium text-sm shadow-sm flex items-center justify-center gap-2">
             Se abrió una nueva pestaña para abonar la seña con Mercado Pago.
           </div>
@@ -122,11 +114,9 @@ export default function Success() {
           </h1>
           
           <p className="text-slate-500 mb-6">
-            {isDemo 
-              ? `Tu reserva de prueba en ${nombreNegocio} quedó guardada exitosamente.` 
-              : mpUrl 
-                ? `Abrimos Mercado Pago en otra pestaña para que abones la seña. Al completarlo, tu lugar queda asegurado.`
-                : `El pago fue aprobado correctamente y tu reserva en ${nombreNegocio} está asegurada.`}
+            {mpUrl 
+              ? `Abrimos Mercado Pago en otra pestaña para que abones la seña. Al completarlo, tu lugar queda asegurado.`
+              : `El pago fue aprobado correctamente y tu reserva en ${nombreNegocio} está asegurada.`}
           </p>
 
           {mpUrl && (
