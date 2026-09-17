@@ -316,6 +316,54 @@ test('16. Admin puede eliminar cancha agregada con contraseña válida (DELETE /
   assert.ok(!dataDel.canchas.some(c => c.nombre === 'Cancha Test Exito'), 'La cancha ya no debe figurar en la lista')
 })
 
+test('17. POST /api/confirmar-pago registra reserva aprobada de Mercado Pago', async () => {
+  const testPid = `test_mp_${Date.now()}`
+  const res = await fetch(`${API_URL}/api/confirmar-pago`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      payment_id: testPid,
+      status: 'approved',
+      nombre: 'Jugador MP Test',
+      fecha: '2026-12-25',
+      hora: '21:00',
+      cancha: '1',
+      external_reference: 'RES-11111111-1111-1111-1111-111111111111-9999999999'
+    })
+  })
+
+  assert.equal(res.status, 200, 'Debe devolver 200 OK')
+  const data = await res.json()
+  assert.equal(data.ok, true, 'Debe devolver ok: true')
+  assert.ok(data.reserva, 'Debe incluir la reserva creada')
+  assert.equal(data.reserva.payment_id, testPid)
+  assert.equal(data.reserva.estado_pago, 'señado')
+
+  // Test 18: Idempotencia - No duplica si se vuelve a llamar con el mismo payment_id
+  const resIdempotente = await fetch(`${API_URL}/api/confirmar-pago`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      payment_id: testPid,
+      status: 'approved',
+      nombre: 'Jugador MP Test',
+      fecha: '2026-12-25',
+      hora: '21:00',
+      cancha: '1',
+      external_reference: 'RES-11111111-1111-1111-1111-111111111111-9999999999'
+    })
+  })
+
+  assert.equal(resIdempotente.status, 200)
+  const dataIdem = await resIdempotente.json()
+  assert.equal(dataIdem.ok, true)
+  assert.equal(dataIdem.ya_registrada, true, 'Debe indicar ya_registrada: true')
+
+  // Limpiar reserva de prueba
+  const { supabase } = await import('../supabase.js')
+  await supabase.from('reservas').delete().eq('payment_id', testPid)
+})
+
 test.after(() => {
   server.close(() => {
     process.exit(0)

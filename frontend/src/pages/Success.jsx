@@ -1,5 +1,8 @@
+import { useEffect, useState, useRef } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useTenant } from "../context/TenantContext"
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 export default function Success() {
   const [searchParams] = useSearchParams()
@@ -12,14 +15,63 @@ export default function Success() {
   const isDemo = searchParams.get('demo') === 'true'
   const mpUrl = searchParams.get('mp_url')
 
+  const paymentId = searchParams.get('payment_id') || searchParams.get('collection_id')
+  const status = searchParams.get('status') || searchParams.get('collection_status')
+  const collectionStatus = searchParams.get('collection_status')
+  const externalReference = searchParams.get('external_reference')
+  const isApproved = status === 'approved' || collectionStatus === 'approved'
+
+  const [confirmando, setConfirmando] = useState(false)
+  const [guardadoExitoso, setGuardadoExitoso] = useState(false)
+  const confirmedRef = useRef(false)
+
   const hasData = nombre && fecha && hora && cancha
+
+  // Confirmar reserva automáticamente al volver de Mercado Pago con pago aprobado
+  useEffect(() => {
+    if (isApproved && hasData && !isDemo && !confirmedRef.current) {
+      confirmedRef.current = true
+      setConfirmando(true)
+
+      fetch(`${API_URL}/api/confirmar-pago`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payment_id: paymentId,
+          collection_id: searchParams.get('collection_id'),
+          status,
+          collection_status: collectionStatus,
+          nombre,
+          fecha,
+          hora,
+          cancha,
+          external_reference: externalReference,
+          merchant_order_id: searchParams.get('merchant_order_id'),
+          slug
+        })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.ok) {
+            setGuardadoExitoso(true)
+          }
+        })
+        .catch(err => {
+          console.error('Error confirmando reserva desde frontend:', err)
+        })
+        .finally(() => {
+          setConfirmando(false)
+        })
+    }
+  }, [isApproved, hasData, isDemo, paymentId, status, collectionStatus, nombre, fecha, hora, cancha, externalReference, slug])
 
   // Número de WhatsApp dinámico del negocio
   const whatsappNumber = telefono || '5493804201334'
 
   const formattedDate = fecha ? fecha.split('-').reverse().join('/') : ''
+  const paymentProofText = paymentId ? `\n- *Comprobante MP:* #${paymentId}` : ''
   const baseMessage = hasData
-    ? `*¡Hola! Paso a confirmar mi reserva en ${nombreNegocio}:*\n\n- *Nombre:* ${nombre}\n- *Fecha:* ${formattedDate}\n- *Hora:* ${hora} hs\n- *Cancha:* Cancha ${cancha}`
+    ? `*¡Hola! Paso a confirmar mi reserva en ${nombreNegocio}:*\n\n- *Nombre:* ${nombre}\n- *Fecha:* ${formattedDate}\n- *Hora:* ${hora} hs\n- *Cancha:* Cancha ${cancha}${paymentProofText}`
     : `*Hola, quiero consultar por una reserva en ${nombreNegocio}.*`
 
   const whatsappText = encodeURIComponent(baseMessage)
@@ -95,7 +147,15 @@ export default function Success() {
 
           {hasData && (
             <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 mb-8 text-left shadow-inner">
-              <p className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">Detalles de la Reserva</p>
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-4">
+                <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Detalles de la Reserva</p>
+                {isApproved && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Seña Aprobada
+                  </span>
+                )}
+              </div>
               
               <div className="grid gap-3">
                 <div className="flex items-center">
@@ -118,7 +178,23 @@ export default function Success() {
                     <p className="text-slate-800 font-bold">Número {cancha}</p>
                   </div>
                 </div>
+
+                {paymentId && (
+                  <div className="flex items-center pt-2 border-t border-slate-200/60">
+                    <div>
+                      <p className="text-xs text-slate-500 font-semibold">N° de Comprobante (Mercado Pago)</p>
+                      <p className="text-slate-700 font-mono font-bold text-sm">#{paymentId}</p>
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {confirmando && (
+                <div className="mt-3 pt-3 border-t border-slate-200/60 text-xs text-blue-600 flex items-center gap-1.5 font-medium">
+                  <div className="w-3 h-3 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></div>
+                  Confirmando y guardando en el sistema de turnos...
+                </div>
+              )}
             </div>
           )}
 

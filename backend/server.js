@@ -708,9 +708,18 @@ app.post('/webhook', async (req, res) => {
     const paymentId = req.body.data?.id
     if (!paymentId) return res.sendStatus(200)
 
-    const defaultClient = getMPClient(DEFAULT_MP_ACCESS_TOKEN)
-    const payment = new Payment(defaultClient)
-    const mpPayment = await payment.get({ id: paymentId })
+    let mpPayment = null
+    try {
+      const defaultClient = getMPClient(DEFAULT_MP_ACCESS_TOKEN)
+      const payment = new Payment(defaultClient)
+      mpPayment = await payment.get({ id: paymentId })
+    } catch (mpErr) {
+      console.warn('⚠️ No se pudo consultar payment.get en MP (posible restricción de credenciales en vivo):', mpErr.message)
+    }
+
+    if (!mpPayment) {
+      return res.sendStatus(200)
+    }
 
     console.log('💰 Estado del pago:', mpPayment.status)
     if (mpPayment.status !== 'approved') {
@@ -721,7 +730,19 @@ app.post('/webhook', async (req, res) => {
     const canchaFinal = cancha || '1'
     const finalNegocioId = negocio_id || '22222222-2222-2222-2222-222222222222'
 
-    // Verificar duplicado
+    // Verificar si ya existe por payment_id
+    const { data: existingByPid } = await supabase
+      .from('reservas')
+      .select('id')
+      .eq('payment_id', String(paymentId))
+      .limit(1)
+
+    if (existingByPid && existingByPid.length > 0) {
+      console.log('⚠️ Reserva ya existía por payment_id en webhook:', paymentId)
+      return res.sendStatus(200)
+    }
+
+    // Verificar duplicado por slot
     const { data: existing } = await supabase
       .from('reservas')
       .select('id')
@@ -749,7 +770,8 @@ app.post('/webhook', async (req, res) => {
           estado_pago: 'señado',
           monto_pagado: monto_sena || mpPayment.transaction_amount || 100,
           payment_id: String(paymentId),
-          negocio_id: finalNegocioId
+          negocio_id: finalNegocioId,
+          creado_por: 'Cliente (Online - Mercado Pago)'
         }
       ])
 
@@ -762,7 +784,8 @@ app.post('/webhook', async (req, res) => {
         hora,
         cancha: canchaFinal,
         pagado: true,
-        payment_id: String(paymentId)
+        payment_id: String(paymentId),
+        negocio_id: finalNegocioId
       }])
     }
 
@@ -770,7 +793,146 @@ app.post('/webhook', async (req, res) => {
     res.sendStatus(200)
   } catch (error) {
     console.error('Webhook error:', error)
-    res.sendStatus(500)
+    res.sendStatus(200)
+  }
+})
+
+// ============================
+// MERCADO PAGO: CONFIRMAR PAGO (FALLBACK FRONTEND)
+// ============================
+app.post('/api/confirmar-pago', async (req, res) => {
+  try {
+    const {
+      payment_id,
+      collection_id,
+      status,
+      collection_status,
+      nombre,
+      fecha,
+      hora,
+      cancha,
+      external_reference,
+      slug
+    } = req.body
+
+    const pid = String(payment_id || collection_id || '').trim()
+    const finalStatus = status || collection_status
+
+    if (finalStatus !== 'approved') {
+      return res.status(400).json({ error: 'El pago no figura como aprobado.' })
+    }
+
+    if (!nombre || !fecha || !hora) {
+      return res.status(400).json({ error: 'Faltan datos obligatorios de la reserva (nombre, fecha, hora).' })
+    }
+
+    const canchaFinal = String(cancha || '1')
+
+    // Determinar negocio_id
+    let finalNegocioId = null
+    if (external_reference) {
+      const match = String(external_reference).match(/^RES-([0-9a-fA-F-]+)-\d+$/)
+      if (match && match[1]) {
+        finalNegocioId = match[1]
+      }
+    }
+
+    if (!finalNegocioId && slug) {
+      const { data: negData } = await supabase
+        .from('negocios')
+        .select('id')
+        .eq('slug', slug)
+        .limit(1)
+        .single()
+      if (negData?.id) finalNegocioId = negData.id
+    }
+
+    if (!finalNegocioId) {
+      finalNegocioId = '22222222-2222-2222-2222-222222222222'
+    }
+
+    // 1. Idempotencia: Verificar si ya existe reserva por payment_id
+    if (pid) {
+      const { data: existingByPid } = await supabase
+        .from('reservas')
+        .select('*')
+        .eq('payment_id', pid)
+        .limit(1)
+
+      if (existingByPid && existingByPid.length > 0) {
+        console.log('✅ Pago ya registrado previamente (idempotente):', pid)
+        return res.json({ ok: true, ya_registrada: true, reserva: existingByPid[0] })
+      }
+    }
+
+    // 2. Verificar si el turno ya está tomado en esa fecha/hora/cancha/negocio
+    const { data: existingSlot } = await supabase
+      .from('reservas')
+      .select('*')
+      .eq('fecha', fecha)
+      .eq('hora', hora)
+      .eq('cancha', canchaFinal)
+      .eq('negocio_id', finalNegocioId)
+      .limit(1)
+
+    if (existingSlot && existingSlot.length > 0) {
+      console.log('⚠️ Turno ya tomado previamente:', existingSlot[0])
+      return res.json({ ok: true, ya_registrada: true, reserva: existingSlot[0] })
+    }
+
+    // Obtener monto_sena del negocio
+    let montoSena = 50
+    try {
+      const { data: neg } = await supabase
+        .from('negocios')
+        .select('monto_sena')
+        .eq('id', finalNegocioId)
+        .single()
+      if (neg && typeof neg.monto_sena === 'number') {
+        montoSena = neg.monto_sena
+      }
+    } catch (e) {
+      console.warn('No se pudo obtener monto_sena:', e.message)
+    }
+
+    // Insertar reserva
+    const nuevaReserva = {
+      nombre: String(nombre).trim(),
+      fecha,
+      hora,
+      cancha: canchaFinal,
+      pagado: true,
+      estado_pago: 'señado',
+      monto_pagado: montoSena,
+      payment_id: pid || `mp_${Date.now()}`,
+      negocio_id: finalNegocioId,
+      creado_por: 'Cliente (Online - Mercado Pago)'
+    }
+
+    let { data: inserted, error: insertError } = await supabase
+      .from('reservas')
+      .insert([nuevaReserva])
+      .select()
+
+    if (insertError) {
+      console.warn('Error insertando con creado_por en confirmar-pago, reintentando:', insertError.message)
+      const fallback = { ...nuevaReserva }
+      delete fallback.creado_por
+      const resFallback = await supabase.from('reservas').insert([fallback]).select()
+      inserted = resFallback.data
+      insertError = resFallback.error
+    }
+
+    if (insertError) {
+      console.error('❌ Error final al guardar reserva confirmada:', insertError)
+      return res.status(500).json({ error: 'Error guardando reserva: ' + insertError.message })
+    }
+
+    console.log('🎉 Reserva online Mercado Pago confirmada y guardada con éxito:', inserted?.[0]?.id)
+    return res.json({ ok: true, reserva: inserted?.[0] })
+  } catch (error) {
+    console.error('❌ Error en /api/confirmar-pago:', error)
+    return res.status(500).json({ error: error.message || 'Error confirmando el pago' })
   }
 })
 

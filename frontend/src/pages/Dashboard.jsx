@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTenant } from '../context/TenantContext'
 import { useAuth } from '../context/AuthContext'
@@ -9,6 +10,209 @@ import SelectorHorario from '../components/SelectorHorario'
 import * as XLSX from 'xlsx'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+
+// Selector moderno flotante para el estado de pago (evita el fondo amarillo y opciones sin estilo del select nativo)
+function EstadoPagoBadge({ value, onChange, isSmall = false, isDark = false }) {
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+  const [coords, setCoords] = useState({ top: 0, left: 0, abreArriba: false })
+
+  const estado = value === 'pagado' ? 'pagado' : value === 'señado' ? 'señado' : 'sin_pago'
+
+  const config = {
+    pagado: {
+      label: 'Pagado',
+      bg: isDark
+        ? 'bg-emerald-950 text-emerald-300 border-emerald-800 hover:bg-emerald-900'
+        : 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200',
+      dot: 'bg-emerald-500'
+    },
+    señado: {
+      label: 'Señado',
+      bg: isDark
+        ? 'bg-amber-950 text-amber-300 border-amber-800 hover:bg-amber-900'
+        : 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200',
+      dot: 'bg-amber-500'
+    },
+    sin_pago: {
+      label: 'Sin Pago',
+      bg: isDark
+        ? 'bg-rose-950 text-rose-300 border-rose-800 hover:bg-rose-900'
+        : 'bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200',
+      dot: 'bg-rose-500'
+    }
+  }
+
+  const actual = config[estado]
+
+  const toggleDropdown = (e) => {
+    e.stopPropagation()
+    if (!open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      const espacioAbajo = window.innerHeight - rect.bottom
+      const abreArriba = espacioAbajo < 160
+
+      setCoords({
+        top: abreArriba 
+          ? rect.top + window.scrollY - 8 
+          : rect.bottom + window.scrollY + 6,
+        left: rect.left + window.scrollX + rect.width / 2,
+        abreArriba
+      })
+    }
+    setOpen(prev => !prev)
+  }
+
+  const selectOption = (nuevoEstado, e) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    setOpen(false)
+    if (nuevoEstado !== estado) {
+      onChange(nuevoEstado)
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return
+
+    const handleDocumentClick = (e) => {
+      if (
+        (buttonRef.current && buttonRef.current.contains(e.target)) ||
+        (menuRef.current && menuRef.current.contains(e.target))
+      ) {
+        return
+      }
+      setOpen(false)
+    }
+
+    const handleScrollOrResize = () => {
+      setOpen(false)
+    }
+
+    document.addEventListener('mousedown', handleDocumentClick)
+    window.addEventListener('scroll', handleScrollOrResize, true)
+    window.addEventListener('resize', handleScrollOrResize)
+
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentClick)
+      window.removeEventListener('scroll', handleScrollOrResize, true)
+      window.removeEventListener('resize', handleScrollOrResize)
+    }
+  }, [open])
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={toggleDropdown}
+        className={`inline-flex items-center gap-1.5 font-bold rounded-full border shadow-sm transition-all active:scale-95 cursor-pointer select-none ${
+          isSmall ? 'text-[10px] px-2 py-1' : 'text-xs px-3 py-1.5'
+        } ${actual.bg}`}
+      >
+        <span className={`w-2 h-2 rounded-full shrink-0 ${actual.dot}`}></span>
+        <span>{actual.label}</span>
+        <svg
+          className={`w-3 h-3 text-current transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          style={{
+            position: 'absolute',
+            top: coords.top,
+            left: coords.left,
+            transform: coords.abreArriba ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
+            zIndex: 99999
+          }}
+          className="w-40 bg-white rounded-2xl shadow-2xl border border-slate-200/90 p-1.5 animate-in fade-in zoom-in-95 duration-100"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2.5 py-1 text-left">
+            Estado de pago
+          </p>
+
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              onMouseDown={(e) => selectOption('pagado', e)}
+              onClick={(e) => selectOption('pagado', e)}
+              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                estado === 'pagado'
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200"></span>
+                Pagado
+              </span>
+              {estado === 'pagado' && (
+                <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onMouseDown={(e) => selectOption('señado', e)}
+              onClick={(e) => selectOption('señado', e)}
+              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                estado === 'señado'
+                  ? 'bg-amber-50 text-amber-800 border border-amber-200/60'
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm shadow-amber-200"></span>
+                Señado
+              </span>
+              {estado === 'señado' && (
+                <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onMouseDown={(e) => selectOption('sin_pago', e)}
+              onClick={(e) => selectOption('sin_pago', e)}
+              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                estado === 'sin_pago'
+                  ? 'bg-rose-50 text-rose-800 border border-rose-200/60'
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-200"></span>
+                Sin Pago
+              </span>
+              {estado === 'sin_pago' && (
+                <svg className="w-4 h-4 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
 
 export default function Dashboard() {
   const { 
@@ -985,21 +1189,12 @@ export default function Dashboard() {
                                 </div>
 
                                 <div className="shrink-0">
-                                  <select
+                                  <EstadoPagoBadge
                                     value={t.estado_pago || (t.pagado ? 'pagado' : 'sin_pago')}
-                                    onChange={e => cambiarEstadoPago(t.id, e.target.value)}
-                                    className={`text-[10px] font-bold px-1.5 py-1 rounded-lg border cursor-pointer outline-none ${
-                                      t.estado_pago === 'pagado'
-                                        ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                                        : t.estado_pago === 'señado'
-                                        ? 'bg-amber-950 text-amber-300 border-amber-800'
-                                        : 'bg-rose-950 text-rose-300 border-rose-800'
-                                    }`}
-                                  >
-                                    <option value="pagado" className="bg-slate-900 text-emerald-300">Pagado</option>
-                                    <option value="señado" className="bg-slate-900 text-amber-300">Señado</option>
-                                    <option value="sin_pago" className="bg-slate-900 text-rose-300">Sin Pago</option>
-                                  </select>
+                                    onChange={nuevoEstado => cambiarEstadoPago(t.id, nuevoEstado)}
+                                    isSmall={true}
+                                    isDark={true}
+                                  />
                                 </div>
                               </div>
                             ))}
@@ -1454,21 +1649,11 @@ export default function Dashboard() {
                           </span>
                         </div>
 
-                        <select
+                        <EstadoPagoBadge
                           value={r.estado_pago || (r.pagado ? 'pagado' : 'sin_pago')}
-                          onChange={e => cambiarEstadoPago(r.id, e.target.value)}
-                          className={`text-[10px] font-bold px-2 py-1 rounded-lg border cursor-pointer outline-none shrink-0 ${
-                            r.estado_pago === 'pagado'
-                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                              : r.estado_pago === 'señado'
-                              ? 'bg-amber-100 text-amber-800 border-amber-300'
-                              : 'bg-rose-100 text-rose-800 border-rose-300'
-                          }`}
-                        >
-                          <option value="pagado">Pagado</option>
-                          <option value="señado">Señado</option>
-                          <option value="sin_pago">Sin Pago</option>
-                        </select>
+                          onChange={nuevoEstado => cambiarEstadoPago(r.id, nuevoEstado)}
+                          isSmall={true}
+                        />
                       </div>
 
                       <div className="bg-slate-50 p-2 rounded-xl flex items-center justify-between text-xs text-slate-700">
@@ -1603,31 +1788,20 @@ export default function Dashboard() {
                           <td className="px-6 py-4 text-center">
                             {editando?.id === r.id ? (
                               <select
-                                className="border border-slate-300 p-2 rounded-lg text-xs font-bold"
+                                className="border border-slate-300 p-2 rounded-lg text-xs font-bold bg-white text-slate-800"
                                 value={editando.estado_pago}
                                 onChange={e => setEditando({ ...editando, estado_pago: e.target.value })}
                               >
-                                <option value="pagado">Pagado Total</option>
-                                <option value="señado">Señado</option>
-                                <option value="sin_pago">Sin Pago</option>
+                                <option value="pagado" className="bg-white text-slate-800 py-1">Pagado Total</option>
+                                <option value="señado" className="bg-white text-slate-800 py-1">Señado</option>
+                                <option value="sin_pago" className="bg-white text-slate-800 py-1">Sin Pago</option>
                               </select>
                             ) : (
-                              <div className="inline-flex items-center">
-                                <select
+                              <div className="inline-flex items-center justify-center">
+                                <EstadoPagoBadge
                                   value={r.estado_pago || (r.pagado ? 'pagado' : 'sin_pago')}
-                                  onChange={e => cambiarEstadoPago(r.id, e.target.value)}
-                                  className={`text-xs font-bold px-3 py-1.5 rounded-full border cursor-pointer outline-none transition-all ${
-                                    r.estado_pago === 'pagado'
-                                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200'
-                                      : r.estado_pago === 'señado'
-                                      ? 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200'
-                                      : 'bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200'
-                                  }`}
-                                >
-                                  <option value="pagado">Pagado</option>
-                                  <option value="señado">Señado</option>
-                                  <option value="sin_pago">Sin Pago</option>
-                                </select>
+                                  onChange={nuevoEstado => cambiarEstadoPago(r.id, nuevoEstado)}
+                                />
                               </div>
                             )}
                           </td>
