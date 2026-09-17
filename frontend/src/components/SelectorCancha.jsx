@@ -17,7 +17,7 @@ export default function SelectorCancha({ canchas = [], selectedCancha, onSelect 
   if (listaCanchas.length === 0) {
     return (
       <div className="mb-6 bg-amber-50 border border-amber-200 p-4 rounded-2xl text-amber-800 text-sm font-semibold">
-        ⚠️ No hay canchas disponibles para reservar en este momento.
+        No hay canchas disponibles para reservar en este momento.
       </div>
     )
   }
@@ -39,7 +39,7 @@ export default function SelectorCancha({ canchas = [], selectedCancha, onSelect 
                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'}
               `}
             >
-              🏟️ {c.nombre}
+              {c.nombre}
             </button>
           )
         })}

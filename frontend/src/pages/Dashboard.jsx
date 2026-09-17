@@ -7,7 +7,18 @@ import { ALL_POSSIBLE_HOURS, DEFAULT_HOURS, todayISO } from '../utils/dateUtils'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 export default function Dashboard() {
-  const { slug, nombreNegocio, canchas: tenantCanchas = [], horarios: tenantHorarios = [], refreshTenant } = useTenant()
+  const { 
+    negocio,
+    nombreNegocio, 
+    telefono: tenantTelefono,
+    direccion: tenantDireccion,
+    montoSena: tenantMontoSena,
+    precioTotal: tenantPrecioTotal,
+    canchas: tenantCanchas = [], 
+    horarios: tenantHorarios = [], 
+    refreshTenant, 
+    updateLocalConfig 
+  } = useTenant()
   const { token, user, isAdmin, isColaborador, logout } = useAuth()
   const navigate = useNavigate()
 
@@ -35,15 +46,27 @@ export default function Dashboard() {
   const [togglingCanchaId, setTogglingCanchaId] = useState(null)
 
   // Config del Negocio (Admin)
-  const [config, setConfig] = useState({
-    nombre: nombreNegocio,
-    telefono: '',
-    direccion: '',
-    monto_sena: 100,
-    precio_total: 100,
-    horarios: tenantHorarios && tenantHorarios.length > 0 ? tenantHorarios : DEFAULT_HOURS,
-    mp_access_token: '',
-    tiene_mp_token: false
+  const [config, setConfig] = useState(() => {
+    let cached = null
+    try {
+      const c = localStorage.getItem('cached_business_config')
+      if (c) cached = JSON.parse(c)
+    } catch (e) {}
+
+    return {
+      nombre: cached?.nombre || negocio?.nombre || nombreNegocio || 'ChavoF651',
+      telefono: cached?.telefono !== undefined && cached?.telefono !== null ? cached.telefono : (negocio?.telefono || tenantTelefono || '3804201334'),
+      direccion: cached?.direccion !== undefined && cached?.direccion !== null ? cached.direccion : (negocio?.direccion || tenantDireccion || 'san martin'),
+      monto_sena: cached?.monto_sena ?? negocio?.monto_sena ?? tenantMontoSena ?? 100,
+      precio_total: cached?.precio_total ?? negocio?.precio_total ?? tenantPrecioTotal ?? 100,
+      horarios: (cached?.horarios && cached.horarios.length > 0)
+        ? cached.horarios
+        : (negocio?.horarios && negocio.horarios.length > 0)
+          ? negocio.horarios
+          : (tenantHorarios && tenantHorarios.length > 0 ? tenantHorarios : DEFAULT_HOURS),
+      mp_access_token: '',
+      tiene_mp_token: false
+    }
   })
   const [configSaved, setConfigSaved] = useState(false)
 
@@ -52,7 +75,7 @@ export default function Dashboard() {
   const [nuevoColab, setNuevoColab] = useState({ nombre: '', email: '', password: '' })
   const [colabMsg, setColabMsg] = useState('')
 
-  // Sincronizar canchas y horarios iniciales desde el contexto del negocio
+  // Sincronizar canchas y configuración cuando el contexto del negocio se cargue o actualice
   useEffect(() => {
     if (tenantCanchas && tenantCanchas.length > 0) {
       setCanchas(tenantCanchas)
@@ -60,13 +83,18 @@ export default function Dashboard() {
   }, [tenantCanchas])
 
   useEffect(() => {
-    if (tenantHorarios && tenantHorarios.length > 0) {
+    if (negocio) {
       setConfig(prev => ({
         ...prev,
-        horarios: prev.horarios && prev.horarios.length > 0 ? prev.horarios : tenantHorarios
+        nombre: negocio.nombre || prev.nombre,
+        telefono: (negocio.telefono !== undefined && negocio.telefono !== null) ? negocio.telefono : prev.telefono,
+        direccion: (negocio.direccion !== undefined && negocio.direccion !== null) ? negocio.direccion : prev.direccion,
+        monto_sena: negocio.monto_sena !== undefined ? negocio.monto_sena : prev.monto_sena,
+        precio_total: negocio.precio_total !== undefined ? negocio.precio_total : prev.precio_total,
+        horarios: (negocio.horarios && negocio.horarios.length > 0) ? negocio.horarios : prev.horarios
       }))
     }
-  }, [tenantHorarios])
+  }, [negocio])
 
   const getAuthHeaders = useCallback(() => {
     const currentToken = token || localStorage.getItem('adminToken')
@@ -78,8 +106,8 @@ export default function Dashboard() {
 
   const handleUnauthorized = useCallback(() => {
     logout()
-    navigate(`/${slug}/admin`)
-  }, [logout, navigate, slug])
+    navigate('/admin')
+  }, [logout, navigate])
 
   // Cargar reservas
   const fetchReservas = useCallback(async () => {
@@ -118,14 +146,24 @@ export default function Dashboard() {
       if (res.ok) {
         const data = await res.json()
         setConfig(prev => ({
+          ...prev,
           ...data,
-          horarios: data.horarios && data.horarios.length > 0 ? data.horarios : (prev.horarios || DEFAULT_HOURS)
+          nombre: data.nombre || prev.nombre,
+          telefono: (data.telefono !== undefined && data.telefono !== null) ? data.telefono : prev.telefono,
+          direccion: (data.direccion !== undefined && data.direccion !== null) ? data.direccion : prev.direccion,
+          monto_sena: data.monto_sena !== undefined ? data.monto_sena : prev.monto_sena,
+          precio_total: data.precio_total !== undefined ? data.precio_total : prev.precio_total,
+          horarios: data.horarios && data.horarios.length > 0 ? data.horarios : (prev.horarios || DEFAULT_HOURS),
+          tiene_mp_token: !!data.tiene_mp_token
         }))
+        if (updateLocalConfig) {
+          updateLocalConfig(data)
+        }
       }
     } catch (err) {
       console.error('Error fetching config:', err)
     }
-  }, [isAdmin, getAuthHeaders])
+  }, [isAdmin, getAuthHeaders, updateLocalConfig])
 
   // Cargar Canchas y su Disponibilidad (Admin y Colaborador)
   const fetchCanchas = useCallback(async () => {
@@ -190,7 +228,7 @@ export default function Dashboard() {
   useEffect(() => {
     const currentToken = token || localStorage.getItem('adminToken')
     if (!currentToken) {
-      navigate(`/${slug}/admin`)
+      navigate('/admin')
       return
     }
     fetchReservas()
@@ -199,7 +237,7 @@ export default function Dashboard() {
       fetchConfig()
       fetchColaboradores()
     }
-  }, [token, slug, navigate, isAdmin, fetchReservas, fetchCanchas, fetchConfig, fetchColaboradores])
+  }, [token, navigate, isAdmin, fetchReservas, fetchCanchas, fetchConfig, fetchColaboradores])
 
   // Formateador de fecha
   const formatearTurno = (fecha, hora) => {
@@ -311,19 +349,47 @@ export default function Dashboard() {
     e.preventDefault()
     setConfigSaved(false)
 
-    const res = await fetch(`${API_URL}/admin/config`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(config)
-    })
+    // Actualización inmediata en la UI de todo el sistema
+    if (updateLocalConfig) {
+      updateLocalConfig({
+        nombre: config.nombre,
+        telefono: config.telefono,
+        direccion: config.direccion,
+        monto_sena: Number(config.monto_sena),
+        precio_total: Number(config.precio_total),
+        horarios: config.horarios
+      })
+    }
 
-    if (res.ok) {
-      setConfigSaved(true)
-      refreshTenant()
-      setTimeout(() => setConfigSaved(false), 3000)
-    } else {
-      const err = await res.json()
-      alert(`Error al guardar configuración: ${err.error}`)
+    try {
+      const res = await fetch(`${API_URL}/admin/config`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(config)
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        if (data.config) {
+          setConfig(prev => ({
+            ...prev,
+            ...data.config,
+            mp_access_token: config.mp_access_token || prev.mp_access_token
+          }))
+          if (updateLocalConfig) {
+            updateLocalConfig(data.config)
+          }
+        }
+        setConfigSaved(true)
+        refreshTenant()
+        setTimeout(() => setConfigSaved(false), 3000)
+      } else {
+        const err = await res.json()
+        alert(`Error al guardar configuración: ${err.error}`)
+      }
+    } catch (err) {
+      console.error('Error guardando config:', err)
+      alert('Error de conexión al guardar configuración')
     }
   }
 
@@ -376,7 +442,7 @@ export default function Dashboard() {
 
     if (res.ok) {
       setNuevoColab({ nombre: '', email: '', password: '' })
-      setColabMsg('✅ Colaborador agregado con éxito')
+      setColabMsg('Colaborador agregado con éxito')
       fetchColaboradores()
       setTimeout(() => setColabMsg(''), 3000)
     } else {
@@ -468,13 +534,13 @@ export default function Dashboard() {
       lista.forEach(r => {
         const nombreCancha = canchas.find(c => String(c.id) === String(r.cancha))?.nombre || `Cancha ${r.cancha}`
         const estadoTxt = r.estado_pago === 'pagado' ? '[PAGADO]' : r.estado_pago === 'señado' ? '[SEÑADO]' : '[SIN PAGO]'
-        texto += `⚽ *${r.hora}hs* - ${nombreCancha}\n`
-        texto += `  👤 Jugador: *${r.nombre}*\n`
-        texto += `  🏷️ Estado: ${estadoTxt}\n\n`
+        texto += `*${r.hora}hs* - ${nombreCancha}\n`
+        texto += `  Jugador: *${r.nombre}*\n`
+        texto += `  Estado: ${estadoTxt}\n\n`
       })
     }
     navigator.clipboard.writeText(texto)
-    alert('📋 Lista de turnos copiada para WhatsApp')
+    alert('Lista de turnos copiada para WhatsApp')
   }
 
   return (
@@ -485,8 +551,8 @@ export default function Dashboard() {
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5">
           
           <div className="flex justify-between items-center">
-            <Link to={`/${slug}`} className="text-base sm:text-xl font-black bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent truncate max-w-[180px] sm:max-w-none">
-              🏟️ {nombreNegocio}
+            <Link to="/" className="text-base sm:text-xl font-black bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent truncate max-w-[180px] sm:max-w-none">
+              {config.nombre || nombreNegocio}
             </Link>
             
             <div className="flex items-center gap-2 sm:hidden">
@@ -495,7 +561,7 @@ export default function Dashboard() {
                   ? 'bg-purple-100 text-purple-800 border border-purple-200' 
                   : 'bg-blue-100 text-blue-800 border border-blue-200'
               }`}>
-                {isAdmin ? '👑 Admin' : '👤 Colab'}
+                {isAdmin ? 'Admin' : 'Colab'}
               </span>
 
               <button
@@ -518,7 +584,7 @@ export default function Dashboard() {
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              📅 Turnos
+              Turnos
             </button>
 
             <button
@@ -529,7 +595,7 @@ export default function Dashboard() {
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              🏟️ Canchas ({canchas.length})
+              Canchas ({canchas.length})
             </button>
 
             {isAdmin && (
@@ -542,7 +608,7 @@ export default function Dashboard() {
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  ⚙️ Horarios & Config
+                  Horarios & Config
                 </button>
                 <button
                   onClick={() => setActiveTab('colaboradores')}
@@ -552,7 +618,7 @@ export default function Dashboard() {
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  👥 Equipo
+                  Equipo
                 </button>
               </>
             )}
@@ -589,7 +655,7 @@ export default function Dashboard() {
               >
                 <div className="flex justify-between items-center mb-1">
                   <p className={`text-[10px] sm:text-xs font-extrabold uppercase tracking-wider ${filterPeriodo === 'hoy' ? 'text-blue-100' : 'text-slate-400'}`}>
-                    ⚡ Turnos Hoy
+                    Turnos Hoy
                   </p>
                 </div>
                 <p className="text-xl sm:text-3xl font-black">{reservasHoy.length}</p>
@@ -608,7 +674,7 @@ export default function Dashboard() {
               >
                 <div className="flex justify-between items-center mb-1">
                   <p className={`text-[10px] sm:text-xs font-extrabold uppercase tracking-wider ${filterPeriodo === 'proximos' ? 'text-indigo-100' : 'text-slate-400'}`}>
-                    📅 Próximos
+                    Próximos
                   </p>
                 </div>
                 <p className="text-xl sm:text-3xl font-black">{reservasProximos.length}</p>
@@ -627,7 +693,7 @@ export default function Dashboard() {
               >
                 <div className="flex justify-between items-center mb-1">
                   <p className={`text-[10px] sm:text-xs font-extrabold uppercase tracking-wider ${filterPeriodo === 'historial' ? 'text-purple-100' : 'text-slate-400'}`}>
-                    📜 Historial
+                    Historial
                   </p>
                 </div>
                 <p className="text-xl sm:text-3xl font-black">{reservasHistorial.length}</p>
@@ -638,7 +704,7 @@ export default function Dashboard() {
 
               <div className="bg-white border border-slate-200 shadow-sm rounded-xl sm:rounded-2xl p-3 sm:p-5 flex flex-col justify-between min-w-0">
                 <div>
-                  <p className="text-[10px] sm:text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">🏟️ Canchas / Seña</p>
+                  <p className="text-[10px] sm:text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">Canchas / Seña</p>
                   <p className="text-lg sm:text-2xl font-black text-emerald-600">${config.monto_sena || 100}</p>
                 </div>
                 <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5 truncate">
@@ -653,7 +719,6 @@ export default function Dashboard() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4 mb-4 border-b border-slate-700/60 pb-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-lg sm:text-2xl">⚡</span>
                     <h2 className="text-lg sm:text-2xl font-black tracking-tight text-white">
                       Turnos de Hoy por Cancha
                     </h2>
@@ -668,7 +733,7 @@ export default function Dashboard() {
                     onClick={() => copiarWhatsApp(reservasHoy, `Turnos de Hoy (${diaHoyTexto} ${diaHoyNumero})`)}
                     className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
                   >
-                    <span>📋</span> Copiar Hoy (WhatsApp)
+                    Copiar Hoy (WhatsApp)
                   </button>
                   <button
                     onClick={() => setNuevaReserva({
@@ -681,7 +746,7 @@ export default function Dashboard() {
                     })}
                     className="w-full sm:w-auto bg-purple-600 hover:bg-purple-500 active:scale-95 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
                   >
-                    <span>➕</span> Nueva Reserva Manual
+                    + Nueva Reserva Manual
                   </button>
                 </div>
               </div>
@@ -701,7 +766,6 @@ export default function Dashboard() {
                         {/* CABECERA CANCHA */}
                         <div className="flex justify-between items-center mb-2.5 border-b border-slate-800 pb-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-base sm:text-lg">🏟️</span>
                             <div className="min-w-0">
                               <h3 className="font-bold text-white text-sm sm:text-base truncate">{cancha.nombre}</h3>
                               <span className="text-[10px] text-slate-400 font-mono">ID: {cancha.id}</span>
@@ -713,14 +777,13 @@ export default function Dashboard() {
                               ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
                               : 'bg-rose-950/80 text-rose-300 border-rose-800'
                           }`}>
-                            {isActiva ? '🟢 Visible' : '🔴 Pausada'}
+                            {isActiva ? 'Visible' : 'Pausada'}
                           </span>
                         </div>
 
                         {/* LISTA DE TURNOS DE HOY DE ESTA CANCHA */}
                         {turnosCanchaHoy.length === 0 ? (
                           <div className="text-center py-4 text-slate-400 bg-slate-950/40 rounded-xl border border-slate-800/60 p-2.5">
-                            <p className="text-lg mb-0.5">⚽</p>
                             <p className="text-xs font-semibold text-slate-300">Cancha disponible hoy</p>
                             <p className="text-[10px] text-slate-500">Sin turnos reservados para hoy.</p>
                           </div>
@@ -733,7 +796,7 @@ export default function Dashboard() {
                               >
                                 <div className="min-w-0 flex items-center gap-1.5">
                                   <span className="bg-blue-950 text-blue-300 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border border-blue-800 shrink-0">
-                                    🕒 {t.hora}hs
+                                    {t.hora} hs
                                   </span>
                                   <p className="font-bold text-xs text-white truncate max-w-[100px] sm:max-w-[140px]">
                                     {t.nombre}
@@ -752,9 +815,9 @@ export default function Dashboard() {
                                         : 'bg-rose-950 text-rose-300 border-rose-800'
                                     }`}
                                   >
-                                    <option value="pagado" className="bg-slate-900 text-emerald-300">🟢 Pagado</option>
-                                    <option value="señado" className="bg-slate-900 text-amber-300">🟡 Señado</option>
-                                    <option value="sin_pago" className="bg-slate-900 text-rose-300">🔴 Sin Pago</option>
+                                    <option value="pagado" className="bg-slate-900 text-emerald-300">Pagado</option>
+                                    <option value="señado" className="bg-slate-900 text-amber-300">Señado</option>
+                                    <option value="sin_pago" className="bg-slate-900 text-rose-300">Sin Pago</option>
                                   </select>
                                 </div>
                               </div>
@@ -780,7 +843,6 @@ export default function Dashboard() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nombre Jugador</label>
                   <input
                     className="w-full border border-slate-300 p-2 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                    placeholder="Nombre completo"
                     value={nuevaReserva.nombre}
                     onChange={e => setNuevaReserva({ ...nuevaReserva, nombre: e.target.value })}
                   />
@@ -832,9 +894,9 @@ export default function Dashboard() {
                     value={nuevaReserva.estado_pago}
                     onChange={e => setNuevaReserva({ ...nuevaReserva, estado_pago: e.target.value })}
                   >
-                    <option value="señado">🟡 Señado</option>
-                    <option value="pagado">🟢 Pagado Total</option>
-                    <option value="sin_pago">🔴 Sin Pago</option>
+                    <option value="señado">Señado</option>
+                    <option value="pagado">Pagado Total</option>
+                    <option value="sin_pago">Sin Pago</option>
                   </select>
                 </div>
 
@@ -870,7 +932,7 @@ export default function Dashboard() {
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      ⚡ Hoy ({reservasHoy.length})
+                      Hoy ({reservasHoy.length})
                     </button>
 
                     <button
@@ -881,7 +943,7 @@ export default function Dashboard() {
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      📅 Próximos ({reservasProximos.length})
+                      Próximos ({reservasProximos.length})
                     </button>
 
                     <button
@@ -892,7 +954,7 @@ export default function Dashboard() {
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      📜 Historial ({reservasHistorial.length})
+                      Historial ({reservasHistorial.length})
                     </button>
 
                     <button
@@ -903,7 +965,7 @@ export default function Dashboard() {
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      🌐 Todos ({reservas.length})
+                      Todos ({reservas.length})
                     </button>
                   </div>
                 </div>
@@ -913,7 +975,7 @@ export default function Dashboard() {
                     onClick={() => copiarWhatsApp(reservasSemana, 'Turnos de la SEMANA')}
                     className="w-full sm:w-auto bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1"
                   >
-                    📋 Copiar Semana
+                    Copiar Semana
                   </button>
                 </div>
               </div>
@@ -935,7 +997,7 @@ export default function Dashboard() {
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      🏟️ Todas
+                      Todas
                     </button>
                     {canchas.map(c => {
                       const totalEnCancha = reservas.filter(r => String(r.cancha) === String(c.id)).length
@@ -988,12 +1050,13 @@ export default function Dashboard() {
                   <div className="relative w-full sm:w-52">
                     <input
                       type="text"
-                      placeholder="Buscar jugador..."
-                      className="w-full pl-7 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                      className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
                       value={searchTerm}
                       onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                     />
-                    <span className="absolute left-2 top-2 text-slate-400 text-xs">🔍</span>
+                    <svg className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
                   </div>
                 </div>
 
@@ -1070,9 +1133,9 @@ export default function Dashboard() {
                             value={editando.estado_pago}
                             onChange={e => setEditando({ ...editando, estado_pago: e.target.value })}
                           >
-                            <option value="pagado">🟢 Pagado Total</option>
-                            <option value="señado">🟡 Señado</option>
-                            <option value="sin_pago">🔴 Sin Pago</option>
+                            <option value="pagado">Pagado Total</option>
+                            <option value="señado">Señado</option>
+                            <option value="sin_pago">Sin Pago</option>
                           </select>
                         </div>
                         <div className="flex gap-2 pt-1">
@@ -1109,7 +1172,7 @@ export default function Dashboard() {
                             )}
                           </div>
                           <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium mt-0.5 truncate">
-                            🏟️ {nombreCancha}
+                            {nombreCancha}
                           </span>
                         </div>
 
@@ -1124,15 +1187,15 @@ export default function Dashboard() {
                               : 'bg-rose-100 text-rose-800 border-rose-300'
                           }`}
                         >
-                          <option value="pagado">🟢 Pagado</option>
-                          <option value="señado">🟡 Señado</option>
-                          <option value="sin_pago">🔴 Sin Pago</option>
+                          <option value="pagado">Pagado</option>
+                          <option value="señado">Señado</option>
+                          <option value="sin_pago">Sin Pago</option>
                         </select>
                       </div>
 
                       <div className="bg-slate-50 p-2 rounded-xl flex items-center justify-between text-xs text-slate-700">
                         <span className="font-medium capitalize text-[11px] sm:text-xs truncate">
-                          📅 {formatearTurno(r.fecha, r.hora)}
+                          {formatearTurno(r.fecha, r.hora)}
                         </span>
                       </div>
 
@@ -1141,13 +1204,13 @@ export default function Dashboard() {
                           onClick={() => setEditando(r)}
                           className="bg-blue-50 text-blue-700 hover:bg-blue-100 px-2.5 py-1 rounded-lg text-xs font-semibold"
                         >
-                          ✏️ Editar
+                          Editar
                         </button>
                         <button
                           onClick={() => eliminarReserva(r.id)}
                           className="bg-rose-50 text-rose-700 hover:bg-rose-100 px-2.5 py-1 rounded-lg text-xs font-semibold"
                         >
-                          🗑️ Eliminar
+                          Eliminar
                         </button>
                       </div>
                     </div>
@@ -1224,7 +1287,7 @@ export default function Dashboard() {
                               </select>
                             ) : (
                               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
-                                🏟️ {canchas.find(c => String(c.id) === String(r.cancha))?.nombre || `Cancha ${r.cancha}`}
+                                {canchas.find(c => String(c.id) === String(r.cancha))?.nombre || `Cancha ${r.cancha}`}
                               </span>
                             )}
                           </td>
@@ -1262,9 +1325,9 @@ export default function Dashboard() {
                                 value={editando.estado_pago}
                                 onChange={e => setEditando({ ...editando, estado_pago: e.target.value })}
                               >
-                                <option value="pagado">🟢 Pagado Total</option>
-                                <option value="señado">🟡 Señado</option>
-                                <option value="sin_pago">🔴 Sin Pago</option>
+                                <option value="pagado">Pagado Total</option>
+                                <option value="señado">Señado</option>
+                                <option value="sin_pago">Sin Pago</option>
                               </select>
                             ) : (
                               <div className="inline-flex items-center">
@@ -1279,9 +1342,9 @@ export default function Dashboard() {
                                       : 'bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200'
                                   }`}
                                 >
-                                  <option value="pagado">🟢 Pagado</option>
-                                  <option value="señado">🟡 Señado</option>
-                                  <option value="sin_pago">🔴 Sin Pago</option>
+                                  <option value="pagado">Pagado</option>
+                                  <option value="señado">Señado</option>
+                                  <option value="sin_pago">Sin Pago</option>
                                 </select>
                               </div>
                             )}
@@ -1368,7 +1431,7 @@ export default function Dashboard() {
               <div className="flex flex-wrap justify-between items-center gap-2.5 mb-3">
                 <div>
                   <h2 className="text-lg sm:text-2xl font-black text-slate-800 flex items-center gap-2">
-                    <span>🏟️</span> Canchas y Disponibilidad
+                    Canchas y Disponibilidad
                   </h2>
                   <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
                     Controlá qué canchas están visibles y disponibles para que los clientes reserven turnos online.
@@ -1382,7 +1445,6 @@ export default function Dashboard() {
 
               {/* AVISO DE ROLES Y PERMISOS */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl sm:rounded-2xl p-3 sm:p-4 mb-4 text-xs text-slate-600 flex items-start gap-2">
-                <span className="text-base sm:text-lg">ℹ️</span>
                 <div>
                   <p className="font-bold text-slate-700 mb-0.5">Gestión Operativa de Canchas</p>
                   <p>
@@ -1394,7 +1456,6 @@ export default function Dashboard() {
               {/* LISTA DE TARJETAS DE CANCHAS */}
               {canchas.length === 0 ? (
                 <div className="text-center py-10 text-slate-400">
-                  <p className="text-2xl mb-1">🏟️</p>
                   <p className="font-semibold text-xs sm:text-sm">Cargando canchas del negocio...</p>
                 </div>
               ) : (
@@ -1415,10 +1476,10 @@ export default function Dashboard() {
                         <div>
                           <div className="flex justify-between items-start mb-2.5">
                             <div className="flex items-center gap-2 min-w-0">
-                              <div className={`w-8 sm:w-10 h-8 sm:h-10 rounded-xl flex items-center justify-center text-sm sm:text-lg font-bold shrink-0 ${
+                              <div className={`w-8 sm:w-10 h-8 sm:h-10 rounded-xl flex items-center justify-center text-xs sm:text-sm font-black shrink-0 ${
                                 isActiva ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
                               }`}>
-                                🏟️
+                                {c.id}
                               </div>
                               <div className="min-w-0">
                                 <h3 className="font-bold text-slate-800 text-xs sm:text-base truncate">{c.nombre}</h3>
@@ -1431,7 +1492,7 @@ export default function Dashboard() {
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                 : 'bg-rose-50 text-rose-700 border-rose-200'
                             }`}>
-                              {isActiva ? '🟢 Disponible' : '🔴 Pausada'}
+                              {isActiva ? 'Disponible' : 'Pausada'}
                             </span>
                           </div>
 
@@ -1455,13 +1516,9 @@ export default function Dashboard() {
                           {isToggling ? (
                             'Guardando...'
                           ) : isActiva ? (
-                            <>
-                              <span>⏸️</span> Pausar Cancha
-                            </>
+                            'Pausar Cancha'
                           ) : (
-                            <>
-                              <span>▶️</span> Habilitar Cancha
-                            </>
+                            'Habilitar Cancha'
                           )}
                         </button>
                       </div>
@@ -1482,7 +1539,7 @@ export default function Dashboard() {
           <div className="max-w-3xl mx-auto bg-white p-3.5 sm:p-7 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 animate-fade-in w-full overflow-hidden">
             
             <h2 className="text-lg sm:text-2xl font-black text-slate-800 mb-1 flex items-center gap-2">
-              <span>⚙️</span> Configuración de {nombreNegocio}
+              Configuración de {config.nombre || nombreNegocio}
             </h2>
             <p className="text-slate-500 text-xs sm:text-sm mb-5">
               Ajustá datos de contacto, valor de la seña y los horarios de atención y turnos disponibles para tu complejo.
@@ -1490,7 +1547,7 @@ export default function Dashboard() {
 
             {configSaved && (
               <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2.5 rounded-xl mb-5 text-xs sm:text-sm font-semibold animate-fade-in">
-                ✅ Configuración guardada correctamente.
+                Configuración guardada correctamente.
               </div>
             )}
 
@@ -1540,7 +1597,7 @@ export default function Dashboard() {
                 <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      🕒 Horarios de Atención / Turnos Disponibles
+                      Horarios de Atención / Turnos Disponibles
                     </label>
                     <p className="text-[10px] sm:text-xs text-slate-500">
                       Marcá qué horas están disponibles para reservar en tus canchas.
@@ -1559,28 +1616,28 @@ export default function Dashboard() {
                     onClick={() => aplicarPresetHorarios('tarde_noche')}
                     className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
                   >
-                    🌆 Tarde/Noche
+                    Tarde/Noche
                   </button>
                   <button
                     type="button"
                     onClick={() => aplicarPresetHorarios('completo')}
                     className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
                   >
-                    🌅 Completo
+                    Completo
                   </button>
                   <button
                     type="button"
                     onClick={() => aplicarPresetHorarios('nocturno')}
                     className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
                   >
-                    🌙 Nocturno
+                    Nocturno
                   </button>
                   <button
                     type="button"
                     onClick={() => aplicarPresetHorarios('matutino_tarde')}
                     className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
                   >
-                    ☀️ Día
+                    Día
                   </button>
                 </div>
 
@@ -1630,7 +1687,6 @@ export default function Dashboard() {
                 </label>
                 <input
                   type="password"
-                  placeholder={config.tiene_mp_token ? "•••••••••••••••••••• (Ya configurado)" : "APP_USR-..."}
                   className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-mono text-xs"
                   value={config.mp_access_token || ''}
                   onChange={e => setConfig({ ...config, mp_access_token: e.target.value })}
@@ -1658,7 +1714,7 @@ export default function Dashboard() {
             {/* AGREGAR COLABORADOR */}
             <div className="bg-white p-3.5 sm:p-7 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 w-full overflow-hidden">
               <h2 className="text-lg sm:text-2xl font-black text-slate-800 mb-1 flex items-center gap-2">
-                <span>➕</span> Agregar Nuevo Colaborador
+                + Agregar Nuevo Colaborador
               </h2>
               <p className="text-slate-500 text-xs sm:text-sm mb-4">
                 Los colaboradores pueden ver turnos, crear reservas manuales y cambiar estados de pago.
@@ -1675,7 +1731,6 @@ export default function Dashboard() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nombre</label>
                   <input
                     type="text"
-                    placeholder="ej: Juan Pérez"
                     className="w-full border border-slate-200 p-2 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     value={nuevoColab.nombre}
                     onChange={e => setNuevoColab({ ...nuevoColab, nombre: e.target.value })}
@@ -1687,7 +1742,6 @@ export default function Dashboard() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Usuario / Email</label>
                   <input
                     type="text"
-                    placeholder="ej: juan o juan@cancha.com"
                     className="w-full border border-slate-200 p-2 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     value={nuevoColab.email}
                     onChange={e => setNuevoColab({ ...nuevoColab, email: e.target.value })}
@@ -1699,7 +1753,6 @@ export default function Dashboard() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Contraseña</label>
                   <input
                     type="password"
-                    placeholder="••••••••"
                     className="w-full border border-slate-200 p-2 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     value={nuevoColab.password}
                     onChange={e => setNuevoColab({ ...nuevoColab, password: e.target.value })}

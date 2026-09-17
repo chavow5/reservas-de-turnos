@@ -45,7 +45,6 @@ export default function SuperAdminLogin() {
       <div className="bg-slate-800 p-8 rounded-3xl shadow-xl border border-slate-700 w-full max-w-md text-white">
         
         <div className="text-center mb-6">
-          <span className="text-4xl block mb-2">⚡</span>
           <h2 className="text-2xl font-black text-white">
             Super Administrador
           </h2>
@@ -67,7 +66,6 @@ export default function SuperAdminLogin() {
             </label>
             <input
               type="text"
-              placeholder="chavow5@superadmin"
               className="w-full border border-slate-700 p-3 rounded-xl bg-slate-900 focus:bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition-all"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -81,7 +79,6 @@ export default function SuperAdminLogin() {
             </label>
             <input
               type="password"
-              placeholder="••••••••"
               className="w-full border border-slate-700 p-3 rounded-xl bg-slate-900 focus:bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition-all"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

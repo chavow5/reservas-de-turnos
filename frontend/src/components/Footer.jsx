@@ -8,7 +8,7 @@ export default function Footer() {
         rel="noopener noreferrer"
         className="text-blue-500 hover:underline mx-1"
       >
-        📞 WhatsApp
+        WhatsApp
       </a>
       |
       <a
@@ -17,7 +17,7 @@ export default function Footer() {
         rel="noopener noreferrer"
         className="text-pink-500 hover:underline mx-1"
       >
-        📷 Instagram
+        Instagram
       </a>
     </footer>
   )

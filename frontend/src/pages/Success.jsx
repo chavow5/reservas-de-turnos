@@ -36,13 +36,13 @@ export default function Success() {
         
         {isDemo && (
           <div className="bg-amber-100 border border-amber-300 text-amber-900 p-4 rounded-2xl mb-6 text-center font-bold text-sm shadow-sm">
-            🚀 Esta es una confirmación de prueba generada en Modo Demo.
+            Esta es una confirmación de prueba generada en Modo Demo.
           </div>
         )}
 
         {mpUrl && !isDemo && (
           <div className="bg-blue-50 border border-blue-200 text-blue-900 p-4 rounded-2xl mb-6 text-center font-medium text-sm shadow-sm flex items-center justify-center gap-2">
-            <span>💳</span> Se abrió una nueva pestaña para abonar la seña con Mercado Pago.
+            Se abrió una nueva pestaña para abonar la seña con Mercado Pago.
           </div>
         )}
 
@@ -50,10 +50,18 @@ export default function Success() {
           <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-full -mr-16 -mt-16 opacity-50 pointer-events-none"></div>
           
           <div className="flex justify-center mb-4">
-            <div className={`w-20 h-20 rounded-full flex items-center justify-center text-4xl shadow-sm ${
+            <div className={`w-20 h-20 rounded-full flex items-center justify-center shadow-sm ${
               mpUrl ? 'bg-blue-100 shadow-blue-200' : 'bg-emerald-100 shadow-emerald-200'
             }`}>
-              {mpUrl ? '💳' : '✅'}
+              {mpUrl ? (
+                <svg className="w-10 h-10 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                </svg>
+              ) : (
+                <svg className="w-10 h-10 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
             </div>
           </div>
 
@@ -80,7 +88,7 @@ export default function Success() {
                 rel="noreferrer"
                 className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-5 py-2.5 rounded-xl text-sm transition-all shadow-sm shadow-blue-200"
               >
-                <span>💳</span> Abrir Mercado Pago para pagar
+                Abrir Mercado Pago para pagar
               </a>
             </div>
           )}
@@ -91,7 +99,6 @@ export default function Success() {
               
               <div className="grid gap-3">
                 <div className="flex items-center">
-                  <span className="w-10 text-xl">👤</span>
                   <div>
                     <p className="text-xs text-slate-500 font-semibold">Jugador</p>
                     <p className="text-slate-800 font-bold text-lg">{nombre}</p>
@@ -99,7 +106,6 @@ export default function Success() {
                 </div>
                 
                 <div className="flex items-center">
-                  <span className="w-10 text-xl">📅</span>
                   <div>
                     <p className="text-xs text-slate-500 font-semibold">Fecha y Hora</p>
                     <p className="text-slate-800 font-bold">{fecha.split('-').reverse().join('/')} a las {hora}hs</p>
@@ -107,7 +113,6 @@ export default function Success() {
                 </div>
 
                 <div className="flex items-center">
-                  <span className="w-10 text-xl">🏟️</span>
                   <div>
                     <p className="text-xs text-slate-500 font-semibold">Cancha</p>
                     <p className="text-slate-800 font-bold">Número {cancha}</p>
@@ -138,29 +143,28 @@ export default function Success() {
                 onClick={copyMessage}
                 className="bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-medium px-6 py-3 rounded-xl transition-all flex items-center justify-center gap-2"
               >
-                📋 Copiar mensaje
+                Copiar mensaje
               </button>
             </div>
           </div>
         </div>
 
         <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 text-center flex flex-col items-center mb-8">
-          <span className="text-4xl mb-3">⚽</span>
           <h3 className="text-xl font-bold text-slate-800 mb-2">¿Ya tenés los equipos?</h3>
           <p className="text-slate-600 mb-5 max-w-sm">
             Organizá el partido y dividí a los jugadores al azar en Equipo A y Equipo B, súper rápido.
           </p>
           <Link
-            to={`/${slug}/sorteo?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${cancha}`}
+            to={`/sorteo?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${cancha}`}
             className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white px-6 py-3 rounded-xl font-medium transition-all shadow-sm shadow-purple-200"
           >
-            <span>🎲</span> Ir al Sorteo de Equipos
+            Ir al Sorteo de Equipos
           </Link>
         </div>
 
         <div className="text-center">
           <Link
-            to={`/${slug}`}
+            to="/"
             className="inline-block text-slate-500 hover:text-purple-600 font-medium transition-colors underline underline-offset-4"
           >
             Volver a {nombreNegocio}

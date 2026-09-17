@@ -3,6 +3,9 @@ import express from 'express'
 import cors from 'cors'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago'
 import { createClient } from '@supabase/supabase-js'
 import { verifyTenantUser } from './middleware/tenant.js'
@@ -120,6 +123,55 @@ export const normalizarHorarios = (raw) => {
   return DEFAULT_HORARIOS
 }
 
+// Persistencia local resiliente de canchas y horarios
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const DATA_DIR = path.join(__dirname, 'data')
+const EXTRAS_FILE = path.join(DATA_DIR, 'business_extras.json')
+
+export const getBusinessExtras = () => {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true })
+    }
+    if (fs.existsSync(EXTRAS_FILE)) {
+      const raw = fs.readFileSync(EXTRAS_FILE, 'utf-8')
+      const parsed = JSON.parse(raw)
+      return {
+        canchas: normalizarCanchas(parsed.canchas),
+        horarios: normalizarHorarios(parsed.horarios)
+      }
+    }
+  } catch (err) {
+    console.error('Error leyendo business_extras.json:', err)
+  }
+  return {
+    canchas: normalizarCanchas(null),
+    horarios: normalizarHorarios(null)
+  }
+}
+
+export const saveBusinessExtras = (data) => {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true })
+    }
+    const current = getBusinessExtras()
+    const updated = {
+      canchas: data.canchas !== undefined ? normalizarCanchas(data.canchas) : current.canchas,
+      horarios: data.horarios !== undefined ? normalizarHorarios(data.horarios) : current.horarios
+    }
+    fs.writeFileSync(EXTRAS_FILE, JSON.stringify(updated, null, 2), 'utf-8')
+    return updated
+  } catch (err) {
+    console.error('Error guardando business_extras.json:', err)
+    return {
+      canchas: normalizarCanchas(data.canchas),
+      horarios: normalizarHorarios(data.horarios)
+    }
+  }
+}
+
 // Helper para instanciar cliente de Mercado Pago dinámicamente por negocio
 const getMPClient = (customAccessToken) => {
   const token = customAccessToken || DEFAULT_MP_ACCESS_TOKEN
@@ -194,30 +246,96 @@ app.get('/health', async (req, res) => {
 })
 
 // ============================
-// ENDPOINTS PÚBLICOS DE NEGOCIO
+// ENDPOINTS PÚBLICOS DE NEGOCIO (SINGLE-TENANT & COMPATIBILIDAD)
 // ============================
 
-// Obtener datos públicos de un negocio por slug
+// Obtener configuración pública del negocio único
+app.get('/api/config', async (req, res) => {
+  try {
+    let { data: negocio, error } = await supabase
+      .from('negocios')
+      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
+      .eq('id', '22222222-2222-2222-2222-222222222222')
+      .maybeSingle()
+
+    if (!negocio) {
+      let { data: fallbackNeg } = await supabase
+        .from('negocios')
+        .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
+        .eq('slug', 'reservas-futbol')
+        .maybeSingle()
+      negocio = fallbackNeg
+    }
+
+    const extras = getBusinessExtras()
+
+    if (!negocio) {
+      negocio = {
+        id: '22222222-2222-2222-2222-222222222222',
+        nombre: 'ChavoF5',
+        telefono: '3804201334',
+        direccion: 'Av. San Martín 1234',
+        activo: true,
+        modo_prueba: false,
+        monto_sena: 100,
+        precio_total: 100
+      }
+    }
+
+    res.json({
+      ...negocio,
+      telefono: negocio.telefono || '3804201334',
+      direccion: negocio.direccion || '',
+      canchas: extras.canchas,
+      horarios: extras.horarios
+    })
+  } catch (err) {
+    console.error('Error obteniendo /api/config:', err)
+    res.status(500).json({ error: 'Error del servidor al obtener configuración' })
+  }
+})
+
+// Obtener turnos ocupados públicos sin requerir slug
+app.get('/api/turnos-ocupados', async (req, res) => {
+  const { desde, hasta } = req.query
+
+  try {
+    let query = supabase
+      .from('reservas')
+      .select('fecha, hora, cancha, estado_pago, pagado')
+
+    if (desde) query = query.gte('fecha', desde)
+    if (hasta) query = query.lte('fecha', hasta)
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('Error al consultar turnos ocupados:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    res.json(data || [])
+  } catch (err) {
+    console.error('Error en /api/turnos-ocupados:', err)
+    res.status(500).json({ error: 'Error al consultar disponibilidad' })
+  }
+})
+
+// Obtener datos públicos de un negocio por slug (compatibilidad)
 app.get('/api/negocios/:slug', async (req, res) => {
   const { slug } = req.params
 
   try {
     let { data: negocio, error } = await supabase
       .from('negocios')
-      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, canchas, horarios')
+      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
       .eq('slug', slug)
-      .single()
+      .maybeSingle()
+
+    const extras = getBusinessExtras()
 
     if (error || !negocio) {
-      const retry = await supabase
-        .from('negocios')
-        .select('id, nombre, slug, plan, activo, modo_prueba, monto_sena, precio_total, canchas')
-        .eq('slug', slug)
-        .single()
-
-      if (retry.data) {
-        negocio = retry.data
-      } else if (slug === 'pruebas-reservas') {
+      if (slug === 'pruebas-reservas') {
         negocio = {
           id: '11111111-1111-1111-1111-111111111111',
           nombre: 'Pruebas-Reservas',
@@ -228,12 +346,7 @@ app.get('/api/negocios/:slug', async (req, res) => {
           activo: true,
           modo_prueba: true,
           monto_sena: 100,
-          precio_total: 100,
-          canchas: [
-            { id: '1', nombre: 'Cancha 1', activa: true },
-            { id: '2', nombre: 'Cancha 2', activa: true }
-          ],
-          horarios: normalizarHorarios(null)
+          precio_total: 100
         }
       } else if (slug === 'reservas-futbol') {
         negocio = {
@@ -246,12 +359,7 @@ app.get('/api/negocios/:slug', async (req, res) => {
           activo: true,
           modo_prueba: false,
           monto_sena: 100,
-          precio_total: 100,
-          canchas: [
-            { id: '1', nombre: 'Cancha 1', activa: true },
-            { id: '2', nombre: 'Cancha 2', activa: true }
-          ],
-          horarios: normalizarHorarios(null)
+          precio_total: 100
         }
       } else {
         return res.status(404).json({ error: 'Negocio no encontrado' })
@@ -262,13 +370,12 @@ app.get('/api/negocios/:slug', async (req, res) => {
       return res.status(403).json({ error: 'Este negocio se encuentra inactivo temporalmente' })
     }
 
-    const canchasNormalizadas = normalizarCanchas(negocio.canchas)
-    const horariosNormalizados = normalizarHorarios(negocio.horarios)
-
     res.json({
       ...negocio,
-      canchas: canchasNormalizadas,
-      horarios: horariosNormalizados
+      telefono: negocio.telefono || '3804201334',
+      direccion: negocio.direccion || '',
+      canchas: extras.canchas,
+      horarios: extras.horarios
     })
   } catch (err) {
     console.error('Error obteniendo negocio por slug:', err)
@@ -412,7 +519,7 @@ app.post('/create-preference', async (req, res) => {
         .from('negocios')
         .select('id, nombre, mp_access_token, monto_sena, activo, modo_prueba')
         .eq('slug', slug)
-        .single()
+        .maybeSingle()
 
       if (neg) {
         if (!neg.activo) return res.status(403).json({ error: 'Negocio suspendido o inactivo' })
@@ -420,6 +527,19 @@ app.post('/create-preference', async (req, res) => {
           return res.status(400).json({ error: 'Este negocio está configurado en Modo Prueba. Debe reservar mediante el flujo demo sin Mercado Pago.' })
         }
         negocioId = neg.id
+        nombreNegocio = neg.nombre
+        mpAccessToken = neg.mp_access_token
+        if (neg.monto_sena) montoSena = Number(neg.monto_sena)
+      }
+    } else {
+      const { data: neg } = await supabase
+        .from('negocios')
+        .select('id, nombre, mp_access_token, monto_sena, activo, modo_prueba')
+        .eq('id', negocioId)
+        .maybeSingle()
+
+      if (neg) {
+        if (!neg.activo) return res.status(403).json({ error: 'Negocio suspendido o inactivo' })
         nombreNegocio = neg.nombre
         mpAccessToken = neg.mp_access_token
         if (neg.monto_sena) montoSena = Number(neg.monto_sena)
@@ -489,9 +609,11 @@ app.post('/create-preference', async (req, res) => {
         external_reference: externalReference
       },
       back_urls: {
-        success: `${baseUrl}/${tenantSlug}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
-        failure: `${baseUrl}/${tenantSlug}`,
-        pending: `${baseUrl}/${tenantSlug}`
+        success: slug
+          ? `${baseUrl}/${tenantSlug}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`
+          : `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
+        failure: slug ? `${baseUrl}/${tenantSlug}` : `${baseUrl}`,
+        pending: slug ? `${baseUrl}/${tenantSlug}` : `${baseUrl}`
       },
       notification_url: 'https://reservas-de-turnos.onrender.com/webhook'
     }
@@ -938,17 +1060,8 @@ app.delete('/admin/reservas/:id', verifyTenantUser(supabase), requireColaborador
 // ============================
 app.get('/admin/canchas', verifyTenantUser(supabase), requireColaboradorOrAdmin, async (req, res) => {
   try {
-    const { data: negocio, error } = await supabase
-      .from('negocios')
-      .select('id, canchas')
-      .eq('id', req.negocio_id)
-      .single()
-
-    if (error || !negocio) {
-      return res.json(normalizarCanchas(null))
-    }
-
-    res.json(normalizarCanchas(negocio.canchas))
+    const extras = getBusinessExtras()
+    res.json(extras.canchas)
   } catch (err) {
     console.error('Error listando canchas:', err)
     res.status(500).json({ error: 'Error al obtener canchas' })
@@ -961,17 +1074,8 @@ app.put('/admin/canchas/:canchaId/disponibilidad', verifyTenantUser(supabase), r
   const { activa, disponible } = req.body
 
   try {
-    const { data: negocio, error } = await supabase
-      .from('negocios')
-      .select('id, canchas')
-      .eq('id', req.negocio_id)
-      .single()
-
-    if (error || !negocio) {
-      return res.status(404).json({ error: 'Negocio no encontrado' })
-    }
-
-    const canchasActuales = normalizarCanchas(negocio.canchas)
+    const extras = getBusinessExtras()
+    const canchasActuales = extras.canchas
     const nuevoEstado = activa !== undefined ? !!activa : (disponible !== undefined ? !!disponible : true)
 
     let encontrada = false
@@ -987,14 +1091,7 @@ app.put('/admin/canchas/:canchaId/disponibilidad', verifyTenantUser(supabase), r
       return res.status(404).json({ error: 'Cancha no encontrada en este negocio' })
     }
 
-    const { error: updateErr } = await supabase
-      .from('negocios')
-      .update({ canchas: canchasActualizadas })
-      .eq('id', req.negocio_id)
-
-    if (updateErr) {
-      return res.status(500).json({ error: updateErr.message })
-    }
+    saveBusinessExtras({ canchas: canchasActualizadas })
 
     res.json({
       ok: true,
@@ -1012,47 +1109,50 @@ app.put('/admin/canchas/:canchaId/disponibilidad', verifyTenantUser(supabase), r
 // ============================
 app.get('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
   try {
+    const targetId = req.negocio_id || '22222222-2222-2222-2222-222222222222'
     let { data: negocio, error } = await supabase
       .from('negocios')
-      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, canchas, horarios, mp_access_token')
-      .eq('id', req.negocio_id)
-      .single()
+      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
+      .eq('id', targetId)
+      .maybeSingle()
 
-    if (error || !negocio) {
-      const retry = await supabase
+    if (!negocio) {
+      const fallback = await supabase
         .from('negocios')
-        .select('id, nombre, slug, plan, activo, modo_prueba, monto_sena, precio_total, canchas, mp_access_token')
-        .eq('id', req.negocio_id)
-        .single()
+        .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
+        .eq('id', '22222222-2222-2222-2222-222222222222')
+        .maybeSingle()
+      negocio = fallback.data
+    }
 
-      if (retry.data) {
-        negocio = retry.data
-      } else {
-        return res.json({
-          nombre: req.negocio?.nombre || 'Mi Cancha',
-          slug: req.user?.slug || 'mi-cancha',
-          telefono: '',
-          direccion: '',
-          monto_sena: 100,
-          precio_total: 100,
-          canchas: normalizarCanchas(null),
-          horarios: normalizarHorarios(null),
-          tiene_mp_token: false
-        })
-      }
+    const extras = getBusinessExtras()
+
+    if (!negocio) {
+      return res.json({
+        id: targetId,
+        nombre: 'ChavoF651',
+        slug: 'reservas-futbol',
+        telefono: '3804201334',
+        direccion: 'san martin',
+        monto_sena: 100,
+        precio_total: 100,
+        canchas: extras.canchas,
+        horarios: extras.horarios,
+        tiene_mp_token: false
+      })
     }
 
     res.json({
       id: negocio.id,
-      nombre: negocio.nombre,
+      nombre: negocio.nombre || 'ChavoF651',
       slug: negocio.slug,
       telefono: negocio.telefono || '',
       direccion: negocio.direccion || '',
       monto_sena: negocio.monto_sena || 100,
       precio_total: negocio.precio_total || 100,
       modo_prueba: negocio.modo_prueba,
-      canchas: normalizarCanchas(negocio.canchas),
-      horarios: normalizarHorarios(negocio.horarios),
+      canchas: extras.canchas,
+      horarios: extras.horarios,
       tiene_mp_token: !!negocio.mp_access_token
     })
   } catch (err) {
@@ -1066,28 +1166,52 @@ app.put('/admin/config', verifyTenantUser(supabase), requireAdmin, async (req, r
 
   try {
     const updateData = {}
-    if (nombre) updateData.nombre = nombre
+    if (nombre !== undefined && nombre !== '') updateData.nombre = String(nombre).trim()
     if (monto_sena !== undefined) updateData.monto_sena = Number(monto_sena)
     if (precio_total !== undefined) updateData.precio_total = Number(precio_total)
-    if (telefono !== undefined) updateData.telefono = telefono || null
-    if (direccion !== undefined) updateData.direccion = direccion || null
-    if (horarios !== undefined) updateData.horarios = normalizarHorarios(horarios)
+    if (telefono !== undefined) updateData.telefono = String(telefono).trim()
+    if (direccion !== undefined) updateData.direccion = String(direccion).trim()
     if (mp_access_token) updateData.mp_access_token = mp_access_token
 
-    let { error } = await supabase
-      .from('negocios')
-      .update(updateData)
-      .eq('id', req.negocio_id)
-
-    if (error) {
-      delete updateData.telefono
-      delete updateData.direccion
-      delete updateData.horarios
-      const retry = await supabase.from('negocios').update(updateData).eq('id', req.negocio_id)
-      if (retry.error) return res.status(500).json({ error: retry.error.message })
+    if (horarios !== undefined) {
+      saveBusinessExtras({ horarios: normalizarHorarios(horarios) })
     }
 
-    res.json({ ok: true, mensaje: 'Configuración actualizada exitosamente' })
+    const targetId = req.negocio_id || '22222222-2222-2222-2222-222222222222'
+
+    // Actualizar en Supabase
+    let { data, error } = await supabase
+      .from('negocios')
+      .update(updateData)
+      .eq('id', targetId)
+      .select()
+
+    if (error) {
+      console.error('Error actualizando negocio en Supabase:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    const savedNegocio = (data && data[0]) ? data[0] : null
+    const extras = getBusinessExtras()
+
+    const fullConfig = {
+      id: targetId,
+      nombre: savedNegocio?.nombre || updateData.nombre,
+      telefono: savedNegocio?.telefono !== undefined ? savedNegocio.telefono : (updateData.telefono || ''),
+      direccion: savedNegocio?.direccion !== undefined ? savedNegocio.direccion : (updateData.direccion || ''),
+      monto_sena: savedNegocio?.monto_sena !== undefined ? savedNegocio.monto_sena : updateData.monto_sena,
+      precio_total: savedNegocio?.precio_total !== undefined ? savedNegocio.precio_total : updateData.precio_total,
+      horarios: extras.horarios,
+      canchas: extras.canchas,
+      tiene_mp_token: !!(savedNegocio?.mp_access_token || updateData.mp_access_token)
+    }
+
+    res.json({
+      ok: true,
+      mensaje: 'Configuración actualizada exitosamente',
+      config: fullConfig,
+      nombre: fullConfig.nombre
+    })
   } catch (err) {
     console.error('Error actualizando config de negocio:', err)
     res.status(500).json({ error: 'Error al guardar configuración' })

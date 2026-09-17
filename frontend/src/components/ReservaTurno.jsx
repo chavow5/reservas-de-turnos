@@ -10,7 +10,7 @@ import SelectorHorario from './SelectorHorario'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 export default function ReservaTurno() {
-  const { slug, nombreNegocio, montoSena, modoPrueba, canchasActivas = [], horarios = [], error: tenantError, loading: tenantLoading } = useTenant()
+  const { slug, nombreNegocio, telefono, direccion, montoSena, modoPrueba, canchasActivas = [], horarios = [], error: tenantError, loading: tenantLoading } = useTenant()
   const navigate = useNavigate()
 
   const [reservas, setReservas] = useState([])
@@ -35,7 +35,7 @@ export default function ReservaTurno() {
     }
   }, [canchasActivas, form.cancha])
 
-  // Cargar turnos ocupados para el negocio actual
+  // Cargar turnos ocupados
   const fetchTurnosOcupados = useCallback(async () => {
     try {
       const hoy = new Date().toISOString().split('T')[0]
@@ -43,7 +43,7 @@ export default function ReservaTurno() {
         .toISOString()
         .split('T')[0]
 
-      const res = await axios.get(`${API_URL}/api/negocios/${slug}/turnos-ocupados`, {
+      const res = await axios.get(`${API_URL}/api/turnos-ocupados`, {
         params: { desde: hoy, hasta: enSieteDias }
       })
 
@@ -56,7 +56,7 @@ export default function ReservaTurno() {
       console.warn('Error cargando turnos ocupados:', err.message)
       setReservas([])
     }
-  }, [slug])
+  }, [])
 
   useEffect(() => {
     fetchTurnosOcupados()
@@ -101,7 +101,7 @@ export default function ReservaTurno() {
       }
       return false
     } catch (err) {
-      console.warn('⚠️ Base de datos no respondió o inactiva:', err.message)
+      console.warn('Base de datos no respondió o inactiva:', err.message)
       return false
     } finally {
       setDbChecking(false)
@@ -132,7 +132,7 @@ export default function ReservaTurno() {
       setLoading(true)
       setTexto("Verificando estado del servidor...")
 
-      // 🛡️ TAREA B: Chequear si la base de datos está activa
+      // Chequear si la base de datos está activa
       const estaActiva = await verificarBaseActiva()
 
       if (!estaActiva) {
@@ -146,7 +146,6 @@ export default function ReservaTurno() {
       if (modoPrueba) {
         setTexto("Confirmando reserva de prueba...")
         const res = await axios.post(`${API_URL}/api/demo/reservar`, {
-          slug,
           nombre: form.nombre,
           cancha: form.cancha,
           fecha: form.fecha,
@@ -154,51 +153,30 @@ export default function ReservaTurno() {
         })
 
         if (res.data.ok) {
-          navigate(`/${slug}/success?nombre=${encodeURIComponent(form.nombre)}&fecha=${form.fecha}&hora=${form.hora}&cancha=${form.cancha}&demo=true`)
+          navigate(`/success?nombre=${encodeURIComponent(form.nombre)}&fecha=${form.fecha}&hora=${form.hora}&cancha=${form.cancha}&demo=true`)
           return
         }
       }
 
-      // CASO 2: PRODUCCIÓN (Mercado Pago dinámico)
+      // CASO 2: PRODUCCIÓN (Mercado Pago directo)
       setTexto("Conectando con Mercado Pago...")
-      
-      // Abrir pestaña emergente de forma anticipada para evitar bloqueos del navegador
-      let popupWindow = null
-      try {
-        popupWindow = window.open('about:blank', '_blank')
-      } catch (popupErr) {
-        console.warn('No se pudo pre-abrir la pestaña:', popupErr)
-      }
 
-      try {
-        const res = await axios.post(`${API_URL}/create-preference`, {
-          slug,
-          nombre: form.nombre,
-          cancha: form.cancha,
-          fecha: form.fecha,
-          hora: form.hora
-        })
+      const res = await axios.post(`${API_URL}/create-preference`, {
+        nombre: form.nombre,
+        cancha: form.cancha,
+        fecha: form.fecha,
+        hora: form.hora
+      })
 
-        if (res.data && res.data.init_point) {
-          const initPoint = res.data.init_point
-
-          // Asignar el enlace de Mercado Pago a la pestaña abierta
-          if (popupWindow && !popupWindow.closed) {
-            popupWindow.location.href = initPoint
-          } else {
-            window.open(initPoint, '_blank')
-          }
-
-          // Redirigir la pestaña actual a la confirmación de la reserva
-          navigate(`/${slug}/success?nombre=${encodeURIComponent(form.nombre)}&fecha=${form.fecha}&hora=${form.hora}&cancha=${form.cancha}&mp_url=${encodeURIComponent(initPoint)}`)
-          return
-        } else {
-          if (popupWindow && !popupWindow.closed) popupWindow.close()
-          throw new Error('No se pudo obtener el punto de inicio de pago')
-        }
-      } catch (mpErr) {
-        if (popupWindow && !popupWindow.closed) popupWindow.close()
-        throw mpErr
+      if (res.data && res.data.init_point) {
+        setTexto("Abriendo Mercado Pago...")
+        // Redirección directa en la misma ventana.
+        // Esto permite que tanto en Android como en iOS el sistema operativo abra
+        // directamente la aplicación de Mercado Libre o Mercado Pago instalada.
+        window.location.href = res.data.init_point
+        return
+      } else {
+        throw new Error('No se pudo obtener el punto de inicio de pago')
       }
 
     } catch (err) {
@@ -240,14 +218,13 @@ export default function ReservaTurno() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 max-w-md text-center">
-          <span className="text-5xl mb-4 block">🏟️</span>
           <h2 className="text-2xl font-bold text-slate-800 mb-2">Negocio no encontrado</h2>
           <p className="text-slate-600 mb-6">{tenantError}</p>
           <Link
-            to="/pruebas-reservas"
+            to="/"
             className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl shadow-sm transition-all"
           >
-            Ir a Negocio de Prueba
+            Reintentar
           </Link>
         </div>
       </div>
@@ -261,7 +238,6 @@ export default function ReservaTurno() {
         {/* BANNER MODO DEMO / PRUEBAS */}
         {modoPrueba && (
           <div className="bg-amber-50 border border-amber-200 p-4 sm:p-5 rounded-2xl mb-4 sm:mb-6 text-amber-900 shadow-sm flex items-start gap-3">
-            <span className="text-xl sm:text-2xl mt-0.5">🚀</span>
             <div>
               <p className="font-bold text-sm sm:text-base">Modo Demostración Activo</p>
               <p className="text-xs sm:text-sm opacity-90 mt-0.5">
@@ -276,7 +252,6 @@ export default function ReservaTurno() {
         {dbError && (
           <div className="bg-rose-50 border border-rose-200 p-4 sm:p-5 rounded-2xl mb-4 sm:mb-6 text-rose-900 shadow-sm animate-fade-in">
             <div className="flex items-start gap-3">
-              <span className="text-xl sm:text-2xl">⚠️</span>
               <div className="flex-1">
                 <p className="font-bold text-sm sm:text-base mb-1">Problema de conexión</p>
                 <p className="text-xs sm:text-sm opacity-95 mb-3">{dbError}</p>
@@ -286,7 +261,7 @@ export default function ReservaTurno() {
                   disabled={dbChecking || loading}
                   className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-rose-200 flex items-center gap-2"
                 >
-                  {dbChecking ? 'Reintentando conexión...' : '🔄 Reintentar ahora'}
+                  {dbChecking ? 'Reintentando conexión...' : 'Reintentar ahora'}
                 </button>
               </div>
             </div>
@@ -295,9 +270,26 @@ export default function ReservaTurno() {
 
         <form onSubmit={handleSubmit} className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 mb-6 sm:mb-8">
           
-          <h2 className="text-2xl sm:text-3xl font-black mb-6 sm:mb-8 text-gray-800 text-center sm:text-left">
-            Reservar Cancha en {nombreNegocio}
-          </h2>
+          <div className="mb-6 sm:mb-8 text-center sm:text-left">
+            <h2 className="text-2xl sm:text-3xl font-black text-gray-800">
+              Reservar Cancha en {nombreNegocio}
+            </h2>
+            {(direccion || telefono) && (
+              <p className="text-xs sm:text-sm text-slate-500 mt-1 flex flex-wrap items-center justify-center sm:justify-start gap-x-3 gap-y-1">
+                {direccion && <span>{direccion}</span>}
+                {telefono && (
+                  <a
+                    href={`https://wa.me/${telefono.replace(/\D/g, '')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-600 font-semibold hover:underline"
+                  >
+                    WhatsApp: {telefono}
+                  </a>
+                )}
+              </p>
+            )}
+          </div>
 
           <div className="mb-6">
             <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -305,7 +297,6 @@ export default function ReservaTurno() {
             </label>
             <input
               className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none transition-all"
-              placeholder="Tu nombre completo"
               value={form.nombre}
               onChange={handleChange('nombre')}
               required
@@ -330,14 +321,13 @@ export default function ReservaTurno() {
             formCancha={form.cancha} 
             formHora={form.hora} 
             reservas={reservas} 
-            horarios={horarios}
+            horarios={horarios} 
             onSelectHour={selectHour} 
           />
 
           {form.fecha && form.hora && (
             <div className="bg-gray-100 border border-gray-200 rounded-2xl p-5 mb-8 text-gray-800 animate-fade-in">
               <div className="flex items-start gap-3">
-                <span className="text-xl mt-0.5">ℹ️</span>
                 <div>
                   <p className="font-medium mb-1">
                     {modoPrueba ? 'Reserva de prueba (sin costo real).' : 'La seña se abona al momento de confirmar.'}
@@ -384,16 +374,15 @@ export default function ReservaTurno() {
         </form>
 
         <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 text-center flex flex-col items-center">
-          <span className="text-4xl mb-3">⚽</span>
           <h3 className="text-xl font-bold text-slate-800 mb-2">¿Querés armar los equipos rápido?</h3>
           <p className="text-slate-600 mb-5 max-w-sm">
             Podés usar nuestra herramienta gratuita para dividir a los jugadores al azar, sin peleas.
           </p>
           <Link
-            to={`/${slug}/sorteo`}
+            to="/sorteo"
             className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-6 py-2.5 rounded-xl font-medium transition-all shadow-sm"
           >
-            <span>🎲</span> Ir al Sorteo de Equipos
+            Ir al Sorteo de Equipos
           </Link>
         </div>
 

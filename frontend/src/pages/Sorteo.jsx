@@ -48,7 +48,6 @@ export default function Sorteo() {
         {nombre && (
           <div className="bg-emerald-50 border border-emerald-200 p-5 rounded-2xl mb-8 shadow-sm animate-fade-in text-emerald-800">
             <div className="flex items-center gap-3">
-              <span className="text-2xl">✅</span>
               <div>
                 <p className="font-semibold text-lg">Reserva confirmada en {nombreNegocio}</p>
                 <p className="opacity-90">Para el <b>{fecha} a las {hora}</b> en <b>Cancha {cancha}</b></p>
@@ -64,8 +63,8 @@ export default function Sorteo() {
           </h2>
           
           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-8 text-slate-700">
-            <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
-              <span>💡</span> ¿Ya reservaste la cancha?
+            <h3 className="font-bold text-lg mb-3">
+              ¿Ya reservaste la cancha?
             </h3>
             <p className="mb-3 leading-relaxed">
               Si ya hiciste la reserva, ahora viene lo importante: 
@@ -76,12 +75,12 @@ export default function Sorteo() {
               <span className="font-semibold text-slate-900"> 2 Equipos (A y B)</span> para que lleguen y arranque el picado.
             </p>
             <p className="mb-5 italic opacity-80">
-              Nada de perder 10 minutos discutiendo quién juega con quién. 😄
+              Nada de perder 10 minutos discutiendo quién juega con quién.
             </p>
 
             <div className="border-t border-slate-200 pt-5 mt-2">
-              <p className="text-slate-600 mb-3 flex items-center gap-2">
-                <span>❗</span> <span className="font-medium">¿Todavía no reservaste la cancha?</span>
+              <p className="text-slate-600 mb-3">
+                <span className="font-medium">¿Todavía no reservaste la cancha?</span>
               </p>
               <Link
                 to={`/${slug}`}
@@ -96,7 +95,6 @@ export default function Sorteo() {
             <label className="block text-sm font-semibold text-slate-700 mb-2">Lista de Jugadores</label>
             <textarea
               rows="8"
-              placeholder="Pegá los nombres aquí (uno por línea)..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               className="w-full border border-slate-300 rounded-xl p-4 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none transition-all resize-y"
@@ -121,7 +119,7 @@ export default function Sorteo() {
                   onClick={hacerSorteo}
                   className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-bold px-8 py-3 rounded-xl transition-all shadow-md shadow-emerald-200 flex items-center justify-center gap-2 text-lg"
                 >
-                  <span>🎲</span> ¡Hacer Sorteo!
+                  ¡Hacer Sorteo!
                 </button>
               </div>
             </div>

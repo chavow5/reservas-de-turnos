@@ -220,7 +220,7 @@ export default function SuperAdminDashboard() {
 
     if (res.ok) {
       setNegocios(prev => prev.map(n => n.id === negocio.id ? { ...n, modo_prueba: nuevoModo } : n))
-      showToast(`"${negocio.nombre}" ahora está en modo ${nuevoModo ? '🚀 DEMO (sin Mercado Pago)' : '💳 PRODUCCIÓN (con Mercado Pago)'}`)
+      showToast(`"${negocio.nombre}" ahora está en modo ${nuevoModo ? 'DEMO (sin Mercado Pago)' : 'PRODUCCIÓN (con Mercado Pago)'}`)
     } else {
       alert('Error al actualizar modo del negocio')
     }
@@ -236,7 +236,7 @@ export default function SuperAdminDashboard() {
 
     if (res.ok) {
       setNegocios(prev => prev.map(n => n.id === negocio.id ? { ...n, estado_suscripcion: nuevoEstado } : n))
-      showToast(`Cuota de "${negocio.nombre}" marcada como: ${nuevoEstado === 'al_dia' ? '🟢 Al Día' : nuevoEstado === 'pendiente' ? '🟡 Pendiente' : '🔴 Vencido/Adeuda'}`)
+      showToast(`Cuota de "${negocio.nombre}" marcada como: ${nuevoEstado === 'al_dia' ? 'Al Día' : nuevoEstado === 'pendiente' ? 'Pendiente' : 'Vencido/Adeuda'}`)
     } else {
       alert('Error al actualizar estado de cuota')
     }
@@ -277,11 +277,11 @@ export default function SuperAdminDashboard() {
       const data = await res.json()
 
       if (!res.ok) {
-        setMsgCobroModal(`❌ Error: ${data.error}`)
+        setMsgCobroModal(`Error: ${data.error}`)
         return
       }
 
-      setMsgCobroModal('🎉 ¡Cobro registrado exitosamente! Cliente al día.')
+      setMsgCobroModal('Cobro registrado exitosamente. Cliente al día.')
       setTimeout(() => {
         setShowModalCobro(false)
         setMsgCobroModal('')
@@ -289,7 +289,7 @@ export default function SuperAdminDashboard() {
         if (activeTab === 'cobranzas') cargarHistorialCobros()
       }, 1200)
     } catch {
-      setMsgCobroModal('❌ Error de conexión al registrar cobro')
+      setMsgCobroModal('Error de conexión al registrar cobro')
     } finally {
       setRegistrandoCobro(false)
     }
@@ -298,28 +298,10 @@ export default function SuperAdminDashboard() {
   // Abrir Modal de Edición
   const abrirEdicion = (negocio) => {
     setEditandoNegocio({
-      id: negocio.id,
-      nombre: negocio.nombre || '',
-      slug: negocio.slug || '',
-      telefono: negocio.telefono || '',
-      dni: negocio.dni || '',
-      direccion: negocio.direccion || '',
-      email_contacto: negocio.email_contacto || '',
-      monto_sena: negocio.monto_sena || 100,
+      ...negocio,
       precio_mensual: negocio.precio_mensual || 25000,
       dia_vencimiento: negocio.dia_vencimiento || 10,
-      estado_suscripcion: negocio.estado_suscripcion || 'al_dia',
-      canchas: negocio.canchas && Array.isArray(negocio.canchas) && negocio.canchas.length > 0
-        ? negocio.canchas
-        : [
-            { id: '1', nombre: 'Cancha 1', activa: true },
-            { id: '2', nombre: 'Cancha 2', activa: true }
-          ],
-      horarios: negocio.horarios || [
-        '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00'
-      ],
-      modo_prueba: !!negocio.modo_prueba,
-      mp_access_token: negocio.mp_access_token || ''
+      canchas: negocio.canchas || []
     })
     setMsgEditModal('')
     setShowModalEditar(true)
@@ -341,11 +323,11 @@ export default function SuperAdminDashboard() {
       const data = await res.json()
 
       if (!res.ok) {
-        setMsgEditModal(`❌ Error: ${data.error}`)
+        setMsgEditModal(`Error: ${data.error}`)
         return
       }
 
-      setMsgEditModal('🎉 ¡Datos del negocio actualizados correctamente!')
+      setMsgEditModal('Datos del negocio actualizados correctamente.')
       setTimeout(() => {
         setShowModalEditar(false)
         setMsgEditModal('')
@@ -353,7 +335,7 @@ export default function SuperAdminDashboard() {
         cargarDatos()
       }, 1000)
     } catch {
-      setMsgEditModal('❌ Error al actualizar el negocio')
+      setMsgEditModal('Error al actualizar el negocio')
     } finally {
       setGuardandoEdit(false)
     }
@@ -363,7 +345,7 @@ export default function SuperAdminDashboard() {
   const copiarLink = (slugPath, tipo) => {
     const fullUrl = `${window.location.origin}/${slugPath}`
     navigator.clipboard.writeText(fullUrl)
-    showToast(`📋 Link ${tipo} copiado: ${fullUrl}`)
+    showToast(`Link ${tipo} copiado: ${fullUrl}`)
   }
 
   // Eliminar negocio
@@ -399,11 +381,11 @@ export default function SuperAdminDashboard() {
       const data = await res.json()
 
       if (!res.ok) {
-        setMsgModal(`❌ Error: ${data.error}`)
+        setMsgModal(`Error: ${data.error}`)
         return
       }
 
-      setMsgModal('🎉 ¡Negocio y cuenta de administrador creados exitosamente!')
+      setMsgModal('Negocio y cuenta de administrador creados exitosamente.')
       setTimeout(() => {
         setShowModalNuevo(false)
         setMsgModal('')
@@ -428,7 +410,7 @@ export default function SuperAdminDashboard() {
         cargarDatos()
       }, 1500)
     } catch {
-      setMsgModal('❌ Error de conexión al crear negocio')
+      setMsgModal('Error de conexión al crear negocio')
     } finally {
       setCreando(false)
     }
@@ -452,7 +434,7 @@ export default function SuperAdminDashboard() {
       {/* TOAST FLOTANTE */}
       {toastMsg && (
         <div className="fixed bottom-6 right-6 z-50 bg-amber-500 text-slate-950 font-bold px-5 py-3 rounded-2xl shadow-2xl animate-fade-in flex items-center gap-2">
-          <span>🔔</span> {toastMsg}
+          <span>{toastMsg}</span>
         </div>
       )}
 
@@ -461,7 +443,6 @@ export default function SuperAdminDashboard() {
         <div className="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-4">
           
           <div className="flex items-center gap-3">
-            <span className="text-2xl">⚡</span>
             <div>
               <h1 className="text-lg font-black text-white">Super Administrador SaaS</h1>
               <p className="text-xs text-slate-400">Control Maestro de Negocios y Turnos</p>
@@ -478,7 +459,7 @@ export default function SuperAdminDashboard() {
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
               }`}
             >
-              🏢 Clientes ({negocios.length})
+              Clientes ({negocios.length})
             </button>
 
             <button
@@ -489,7 +470,7 @@ export default function SuperAdminDashboard() {
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
               }`}
             >
-              💳 Cobranzas Mensuales
+              Cobranzas Mensuales
             </button>
 
             <button
@@ -500,7 +481,7 @@ export default function SuperAdminDashboard() {
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
               }`}
             >
-              📅 Reservas Globales
+              Reservas Globales
             </button>
 
             <button
@@ -568,19 +549,20 @@ export default function SuperAdminDashboard() {
               <div className="relative w-full sm:w-80">
                 <input
                   type="text"
-                  placeholder="Buscar por nombre, teléfono, DNI o ubicación..."
                   className="w-full pl-9 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 text-white placeholder-slate-500"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                 />
-                <span className="absolute left-3 top-3 text-slate-500 text-sm">🔍</span>
+                <svg className="w-4 h-4 absolute left-3 top-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
               </div>
 
               <button
                 onClick={() => setShowModalNuevo(true)}
                 className="bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black px-5 py-2.5 rounded-xl text-sm transition-all shadow-md shadow-amber-500/20 flex items-center gap-2"
               >
-                <span>➕</span> Nuevo Negocio
+                + Nuevo Negocio
               </button>
 
             </div>
@@ -625,17 +607,17 @@ export default function SuperAdminDashboard() {
                             <div className="flex flex-col gap-0.5 mt-1 text-xs">
                               {n.telefono ? (
                                 <span className="text-emerald-400 font-medium">
-                                  📞 {n.telefono}
+                                  {n.telefono}
                                 </span>
                               ) : null}
                               {n.dni ? (
                                 <span className="text-slate-400 font-mono">
-                                  🆔 DNI: {n.dni}
+                                  DNI: {n.dni}
                                 </span>
                               ) : null}
                               {n.direccion ? (
                                 <span className="text-slate-300">
-                                  📍 {n.direccion}
+                                  {n.direccion}
                                 </span>
                               ) : null}
                               {!n.telefono && !n.dni && !n.direccion && (
@@ -659,7 +641,7 @@ export default function SuperAdminDashboard() {
                               className="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold bg-slate-800 text-amber-300 border border-slate-700 cursor-default"
                               title={(n.canchas || []).map(c => `${c.nombre} (${c.activa !== false ? 'Activa' : 'Pausada'})`).join(', ')}
                             >
-                              🏟️ {(n.canchas || []).length} { (n.canchas || []).length === 1 ? 'cancha' : 'canchas' }
+                              {(n.canchas || []).length} { (n.canchas || []).length === 1 ? 'cancha' : 'canchas' }
                             </span>
                           </td>
 
@@ -676,15 +658,15 @@ export default function SuperAdminDashboard() {
                               onChange={e => cambiarEstadoSuscripcion(n, e.target.value)}
                               className={`text-xs font-bold px-3 py-1.5 rounded-xl border focus:outline-none cursor-pointer ${
                                 n.estado_suscripcion === 'al_dia'
-                                  ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800'
-                                  : n.estado_suscripcion === 'pendiente'
-                                  ? 'bg-amber-950/80 text-amber-400 border-amber-800'
-                                  : 'bg-rose-950/80 text-rose-400 border-rose-800'
+                                    ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800'
+                                    : n.estado_suscripcion === 'pendiente'
+                                    ? 'bg-amber-950/80 text-amber-400 border-amber-800'
+                                    : 'bg-rose-950/80 text-rose-400 border-rose-800'
                               }`}
                             >
-                              <option value="al_dia" className="bg-slate-900 text-emerald-400">🟢 Al Día</option>
-                              <option value="pendiente" className="bg-slate-900 text-amber-400">🟡 Pendiente</option>
-                              <option value="vencido" className="bg-slate-900 text-rose-400">🔴 Adeuda / Vencido</option>
+                              <option value="al_dia" className="bg-slate-900 text-emerald-400">Al Día</option>
+                              <option value="pendiente" className="bg-slate-900 text-amber-400">Pendiente</option>
+                              <option value="vencido" className="bg-slate-900 text-rose-400">Adeuda / Vencido</option>
                             </select>
                           </td>
 
@@ -699,7 +681,7 @@ export default function SuperAdminDashboard() {
                               }`}
                               title="Click para alternar entre Modo Demo y Producción con Mercado Pago"
                             >
-                              {n.modo_prueba ? '🚀 Demo' : '💳 Prod'}
+                              {n.modo_prueba ? 'Demo' : 'Prod'}
                             </button>
                           </td>
 
@@ -707,15 +689,15 @@ export default function SuperAdminDashboard() {
                           <td className="px-6 py-4 text-center">
                             {n.mp_access_token ? (
                               <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
-                                🔑 OK
+                                OK
                               </span>
                             ) : n.slug === 'reservas-futbol' ? (
                               <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
-                                🔑 Principal
+                                Principal
                               </span>
                             ) : (
                               <span className="text-xs font-semibold text-rose-400 bg-rose-950/60 px-2 py-0.5 rounded border border-rose-800/60" title="Sin Token propio">
-                                ⚠️ Sin MP
+                                Sin MP
                               </span>
                             )}
                           </td>
@@ -731,7 +713,7 @@ export default function SuperAdminDashboard() {
                               }`}
                               title="Click para cambiar estado"
                             >
-                              {n.activo ? '🟢 Activo' : '🔴 Suspendido'}
+                              {n.activo ? 'Activo' : 'Suspendido'}
                             </button>
                           </td>
 
@@ -745,7 +727,7 @@ export default function SuperAdminDashboard() {
                                 className="bg-emerald-900/80 hover:bg-emerald-800 text-emerald-200 border border-emerald-700 text-xs px-2.5 py-1.5 rounded-lg font-bold transition-all shadow-sm flex items-center gap-1"
                                 title="Registrar pago de mensualidad de este cliente"
                               >
-                                💵 Cobrar
+                                Cobrar
                               </button>
 
                               <button
@@ -753,7 +735,7 @@ export default function SuperAdminDashboard() {
                                 className="bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-300 text-xs px-2.5 py-1.5 rounded-lg font-bold transition-all"
                                 title="Copiar link de reserva para WhatsApp"
                               >
-                                📋 Link
+                                Link
                               </button>
 
                               <button
@@ -761,7 +743,7 @@ export default function SuperAdminDashboard() {
                                 className="bg-blue-950/80 hover:bg-blue-900 text-blue-300 border border-blue-800 text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors"
                                 title="Editar datos, precio mensual, DNI, dirección y Mercado Pago"
                               >
-                                ✏️
+                                Editar
                               </button>
 
                               <a
@@ -771,7 +753,7 @@ export default function SuperAdminDashboard() {
                                 className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-1.5 rounded-lg font-medium transition-colors"
                                 title="Ver web de turnos"
                               >
-                                🌐
+                                Web
                               </a>
 
                               <a
@@ -781,7 +763,7 @@ export default function SuperAdminDashboard() {
                                 className="bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-800 text-xs px-2 py-1.5 rounded-lg font-medium transition-colors"
                                 title="Panel de la cancha"
                               >
-                                🔐
+                                Panel
                               </a>
 
                               <button
@@ -789,7 +771,7 @@ export default function SuperAdminDashboard() {
                                 className="bg-rose-950 hover:bg-rose-900 text-rose-400 text-xs px-2 py-1.5 rounded-lg transition-colors"
                                 title="Eliminar cliente"
                               >
-                                🗑️
+                                Eliminar
                               </button>
                             </div>
                           </td>
@@ -819,7 +801,7 @@ export default function SuperAdminDashboard() {
                   onChange={e => setFiltroNegocioId(e.target.value)}
                   className="bg-slate-900 border border-slate-800 text-white rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 >
-                  <option value="">🏢 Todos los Clientes</option>
+                  <option value="">Todos los Clientes</option>
                   {negocios.map(n => (
                     <option key={n.id} value={n.id}>{n.nombre} (/{n.slug})</option>
                   ))}
@@ -881,7 +863,7 @@ export default function SuperAdminDashboard() {
                           </td>
                           <td className="px-6 py-4 text-center">
                             <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
-                              ✅ Pagado
+                              Pagado
                             </span>
                           </td>
                         </tr>
@@ -907,7 +889,7 @@ export default function SuperAdminDashboard() {
                   onChange={e => setFiltroNegocioId(e.target.value)}
                   className="bg-slate-900 border border-slate-800 text-white rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 >
-                  <option value="">🏢 Todos los Negocios</option>
+                  <option value="">Todos los Negocios</option>
                   {negocios.map(n => (
                     <option key={n.id} value={n.id}>{n.nombre} (/{n.slug})</option>
                   ))}
@@ -956,7 +938,7 @@ export default function SuperAdminDashboard() {
                                 ? 'bg-amber-950 text-amber-400 border border-amber-800'
                                 : 'bg-rose-950 text-rose-400 border border-rose-800'
                             }`}>
-                              {r.estado_pago === 'pagado' ? '🟢 Pagado' : r.estado_pago === 'señado' ? '🟡 Señado' : '🔴 Sin Pago'}
+                              {r.estado_pago === 'pagado' ? 'Pagado' : r.estado_pago === 'señado' ? 'Señado' : 'Sin Pago'}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-slate-300 font-mono">
@@ -978,7 +960,7 @@ export default function SuperAdminDashboard() {
         {activeTab === 'salud' && (
           <div className="max-w-2xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-xl">
             <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-              <span>🩺</span> Diagnóstico de Supabase (Tarea B)
+              Diagnóstico de Supabase (Tarea B)
             </h2>
             <p className="text-slate-400 text-sm mb-6 leading-relaxed">
               Monitoreo del estado de actividad de PostgreSQL. Si la base entra en modo reposo (pausada por inactividad),
@@ -993,7 +975,7 @@ export default function SuperAdminDashboard() {
                     ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                     : 'bg-rose-950 text-rose-400 border border-rose-800'
                 }`}>
-                  {dbStatus?.activa ? '✅ Base de Datos Activa' : '❌ Inactiva o Error'}
+                  {dbStatus?.activa ? 'Base de Datos Activa' : 'Inactiva o Error'}
                 </span>
               </div>
 
@@ -1017,7 +999,7 @@ export default function SuperAdminDashboard() {
               disabled={pingingDb}
               className="w-full py-3 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black rounded-xl transition-all shadow-md shadow-amber-500/20 disabled:opacity-50"
             >
-              {pingingDb ? 'Comprobando conexión...' : '⚡ Hacer Ping a Supabase'}
+              {pingingDb ? 'Comprobando conexión...' : 'Hacer Ping a Supabase'}
             </button>
           </div>
         )}
@@ -1033,7 +1015,7 @@ export default function SuperAdminDashboard() {
             
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-black text-white flex items-center gap-2">
-                <span>💵</span> Registrar Cobro de Mensualidad
+                Registrar Cobro de Mensualidad
               </h3>
               <button
                 onClick={() => setShowModalCobro(false)}
@@ -1137,7 +1119,7 @@ export default function SuperAdminDashboard() {
             
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-black text-white flex items-center gap-2">
-                <span>🏢</span> Alta de Nuevo Negocio
+                Alta de Nuevo Negocio
               </h3>
               <button
                 onClick={() => setShowModalNuevo(false)}
@@ -1194,7 +1176,7 @@ export default function SuperAdminDashboard() {
               {/* SELECTOR DE CANTIDAD DE CANCHAS INICIALES */}
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
                 <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider mb-2">
-                  🏟️ Cantidad de Canchas a Agregar
+                  Cantidad de Canchas a Agregar
                 </label>
                 <div className="flex flex-wrap items-center gap-3">
                   <input
@@ -1367,7 +1349,7 @@ export default function SuperAdminDashboard() {
             
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-black text-white flex items-center gap-2">
-                <span>✏️</span> Editar Negocio: {editandoNegocio.nombre}
+                Editar Negocio: {editandoNegocio.nombre}
               </h3>
               <button
                 onClick={() => { setShowModalEditar(false); setEditandoNegocio(null); }}
@@ -1485,7 +1467,7 @@ export default function SuperAdminDashboard() {
                 <div className="flex justify-between items-center mb-3">
                   <div>
                     <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider">
-                      🏟️ Canchas del Negocio ({(editandoNegocio.canchas || []).length})
+                      Canchas del Negocio ({(editandoNegocio.canchas || []).length})
                     </label>
                     <p className="text-[11px] text-slate-400">Podés agregar, renombrar o eliminar canchas de este negocio.</p>
                   </div>
@@ -1504,7 +1486,7 @@ export default function SuperAdminDashboard() {
                     }}
                     className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1 active:scale-95"
                   >
-                    <span>➕</span> Agregar Cancha
+                    + Agregar Cancha
                   </button>
                 </div>
 
@@ -1521,7 +1503,6 @@ export default function SuperAdminDashboard() {
                           updated[index] = { ...updated[index], nombre: e.target.value }
                           setEditandoNegocio({ ...editandoNegocio, canchas: updated })
                         }}
-                        placeholder={`Cancha ${index + 1}`}
                       />
                       <span className={`text-[10px] px-2 py-1 rounded font-bold ${
                         c.activa !== false ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'
@@ -1542,7 +1523,7 @@ export default function SuperAdminDashboard() {
                         className="text-xs text-rose-400 hover:bg-rose-950/80 p-1.5 rounded-lg transition-colors border border-rose-800/40"
                         title="Eliminar esta cancha"
                       >
-                        🗑️
+                        Eliminar
                       </button>
                     </div>
                   ))}

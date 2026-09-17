@@ -24,7 +24,6 @@ export default function AdminLogin() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          slug,
           email,
           password
         })
@@ -40,8 +39,8 @@ export default function AdminLogin() {
       // Guardar token y usuario en AuthContext
       login(data.token, data.user)
 
-      // Redirigir al dashboard de este negocio
-      navigate(`/${slug}/dashboard`)
+      // Redirigir al dashboard
+      navigate('/dashboard')
 
     } catch (err) {
       setError('No se pudo conectar con el servidor. Intente nuevamente.')
@@ -55,7 +54,6 @@ export default function AdminLogin() {
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 w-full max-w-md">
         
         <div className="text-center mb-6">
-          <span className="text-4xl block mb-2">🔐</span>
           <h2 className="text-2xl font-black text-slate-800">
             Acceso Administración
           </h2>
@@ -77,7 +75,6 @@ export default function AdminLogin() {
             </label>
             <input
               type="text"
-              placeholder="ej: admin@cancha.com"
               className="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -91,7 +88,6 @@ export default function AdminLogin() {
             </label>
             <input
               type="password"
-              placeholder="••••••••"
               className="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -109,11 +105,8 @@ export default function AdminLogin() {
         </form>
 
         <div className="mt-6 pt-6 border-t border-slate-100 text-center flex flex-col items-center gap-2 text-sm text-slate-500">
-          <Link to={`/${slug}`} className="hover:text-blue-600 transition-colors font-medium">
+          <Link to="/" className="hover:text-blue-600 transition-colors font-medium">
             ← Volver a Reservas de {nombreNegocio}
-          </Link>
-          <Link to="/superadmin" className="text-slate-300 hover:text-slate-500 text-xs mt-2 transition-colors" title="Acceso">
-            🔒
           </Link>
         </div>
 

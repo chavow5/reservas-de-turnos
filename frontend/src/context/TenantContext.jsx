@@ -1,68 +1,49 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { useParams, useLocation } from 'react-router-dom'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 const TenantContext = createContext(null)
 
 export function TenantProvider({ children }) {
-  const params = useParams()
-  const location = useLocation()
-
-  // Extraer el slug del path si no está en params
-  const pathParts = location.pathname.split('/').filter(Boolean)
-  const slugFromPath = pathParts[0] && !['superadmin', 'sorteo', 'success', 'admin', 'dashboard'].includes(pathParts[0])
-    ? pathParts[0]
-    : null
-
-  const slug = params.slug || slugFromPath || 'pruebas-reservas'
-
-  const [negocio, setNegocio] = useState(null)
+  const [negocio, setNegocio] = useState(() => {
+    try {
+      const cached = localStorage.getItem('cached_business_config')
+      return cached ? JSON.parse(cached) : null
+    } catch (e) {
+      return null
+    }
+  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const fetchTenant = useCallback(async () => {
+  const fetchConfig = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
 
-      const res = await fetch(`${API_URL}/api/negocios/${slug}`)
+      const res = await fetch(`${API_URL}/api/config`)
       if (!res.ok) {
-        if (res.status === 404) {
-          throw new Error(`El negocio "${slug}" no existe o no se encuentra registrado.`)
-        }
-        if (res.status === 403) {
-          throw new Error(`El negocio "${slug}" se encuentra temporalmente inactivo.`)
-        }
-        throw new Error('Error al cargar la información del negocio.')
+        throw new Error('Error al cargar la configuración del negocio.')
       }
 
       const data = await res.json()
       setNegocio(data)
+      try {
+        localStorage.setItem('cached_business_config', JSON.stringify(data))
+      } catch (e) {}
     } catch (err) {
-      console.warn('Aviso TenantContext:', err.message)
-      // Fallback básico para demo
-      if (slug === 'pruebas-reservas') {
-        setNegocio({
-          id: '11111111-1111-1111-1111-111111111111',
-          nombre: 'Pruebas-Reservas',
-          slug: 'pruebas-reservas',
-          plan: 'pro',
-          activo: true,
-          modo_prueba: true,
-          monto_sena: 100,
-          precio_total: 100,
-          canchas: [
-            { id: '1', nombre: 'Cancha 1', activa: true },
-            { id: '2', nombre: 'Cancha 2', activa: true }
-          ]
-        })
-      } else if (slug === 'reservas-futbol') {
-        setNegocio({
+      console.warn('Aviso ConfigContext:', err.message)
+      setNegocio(prev => {
+        if (prev && prev.nombre) return prev
+        try {
+          const cached = localStorage.getItem('cached_business_config')
+          if (cached) return JSON.parse(cached)
+        } catch (e) {}
+        return {
           id: '22222222-2222-2222-2222-222222222222',
-          nombre: 'Reservas Fútbol',
-          slug: 'reservas-futbol',
-          plan: 'pro',
+          nombre: 'ChavoF651',
+          telefono: '3804201334',
+          direccion: 'san martin',
           activo: true,
           modo_prueba: false,
           monto_sena: 100,
@@ -70,19 +51,37 @@ export function TenantProvider({ children }) {
           canchas: [
             { id: '1', nombre: 'Cancha 1', activa: true },
             { id: '2', nombre: 'Cancha 2', activa: true }
+          ],
+          horarios: [
+            '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00'
           ]
-        })
-      } else {
-        setError(err.message)
-      }
+        }
+      })
     } finally {
       setLoading(false)
     }
-  }, [slug])
+  }, [])
 
   useEffect(() => {
-    fetchTenant()
-  }, [fetchTenant])
+    fetchConfig()
+  }, [fetchConfig])
+
+  useEffect(() => {
+    if (negocio?.nombre) {
+      document.title = `${negocio.nombre} - Reservas de Cancha`
+    }
+  }, [negocio?.nombre])
+
+  // Actualizar inmediatamente en el estado local de React y en la caché
+  const updateLocalConfig = useCallback((newData) => {
+    setNegocio(prev => {
+      const updated = { ...(prev || {}), ...newData }
+      try {
+        localStorage.setItem('cached_business_config', JSON.stringify(updated))
+      } catch (e) {}
+      return updated
+    })
+  }, [])
 
   const todasLasCanchas = negocio?.canchas && Array.isArray(negocio.canchas) && negocio.canchas.length > 0
     ? negocio.canchas
@@ -102,19 +101,23 @@ export function TenantProvider({ children }) {
     : DEFAULT_HORARIOS
 
   const value = {
-    slug,
+    slug: '',
     negocio,
     negocioId: negocio?.id || null,
-    nombreNegocio: negocio?.nombre || 'Reservas Fútbol',
-    telefono: negocio?.telefono || '5493804201334',
+    nombreNegocio: negocio?.nombre || 'ChavoF651',
+    telefono: negocio?.telefono || '3804201334',
+    direccion: negocio?.direccion || 'san martin',
     montoSena: Number(negocio?.monto_sena) || 100,
+    precioTotal: Number(negocio?.precio_total) || 100,
     modoPrueba: !!negocio?.modo_prueba,
     canchas: todasLasCanchas,
     canchasActivas: canchasActivas.length > 0 ? canchasActivas : todasLasCanchas,
     horarios,
     loading,
     error,
-    refreshTenant: fetchTenant
+    refreshConfig: fetchConfig,
+    refreshTenant: fetchConfig,
+    updateLocalConfig
   }
 
   return (
@@ -128,12 +131,15 @@ export function useTenant() {
   const context = useContext(TenantContext)
   if (!context) {
     return {
-      slug: 'pruebas-reservas',
+      slug: '',
       negocio: null,
       negocioId: null,
-      nombreNegocio: 'Reservas Fútbol',
+      nombreNegocio: 'ChavoF651',
+      telefono: '3804201334',
+      direccion: 'san martin',
       montoSena: 100,
-      modoPrueba: true,
+      precioTotal: 100,
+      modoPrueba: false,
       canchas: [
         { id: '1', nombre: 'Cancha 1', activa: true },
         { id: '2', nombre: 'Cancha 2', activa: true }
@@ -147,7 +153,9 @@ export function useTenant() {
       ],
       loading: false,
       error: null,
-      refreshTenant: () => {}
+      refreshConfig: () => {},
+      refreshTenant: () => {},
+      updateLocalConfig: () => {}
     }
   }
   return context
