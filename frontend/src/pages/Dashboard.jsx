@@ -3,6 +3,10 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useTenant } from '../context/TenantContext'
 import { useAuth } from '../context/AuthContext'
 import { ALL_POSSIBLE_HOURS, DEFAULT_HOURS, todayISO } from '../utils/dateUtils'
+import SelectorCancha from '../components/SelectorCancha'
+import Calendario from '../components/Calendario'
+import SelectorHorario from '../components/SelectorHorario'
+import * as XLSX from 'xlsx'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
@@ -44,6 +48,15 @@ export default function Dashboard() {
         ]
   )
   const [togglingCanchaId, setTogglingCanchaId] = useState(null)
+  const [modalNuevaCancha, setModalNuevaCancha] = useState(false)
+  const [nuevaCanchaForm, setNuevaCanchaForm] = useState({ nombre: '', password: '', precio: '' })
+  const [canchaError, setCanchaError] = useState('')
+  const [guardandoCancha, setGuardandoCancha] = useState(false)
+
+  const [modalEliminarCancha, setModalEliminarCancha] = useState(null)
+  const [eliminarPassword, setEliminarPassword] = useState('')
+  const [eliminandoCancha, setEliminandoCancha] = useState(false)
+  const [eliminarError, setEliminarError] = useState('')
 
   // Config del Negocio (Admin)
   const [config, setConfig] = useState(() => {
@@ -69,6 +82,7 @@ export default function Dashboard() {
     }
   })
   const [configSaved, setConfigSaved] = useState(false)
+  const [savingConfig, setSavingConfig] = useState(false)
 
   // Colaboradores (Admin)
   const [colaboradores, setColaboradores] = useState([])
@@ -126,7 +140,8 @@ export default function Dashboard() {
       const normalized = (data || []).map(r => ({
         ...r,
         cancha: r.cancha ?? '1',
-        estado_pago: r.estado_pago || (r.pagado ? 'pagado' : 'sin_pago')
+        estado_pago: r.estado_pago || (r.pagado ? 'pagado' : 'sin_pago'),
+        creado_por: r.creado_por || (r.payment_id && String(r.payment_id).startsWith('manual_') ? 'Admin (Manual)' : 'Cliente (Online)')
       }))
       setReservas(normalized)
     } catch (err) {
@@ -206,6 +221,83 @@ export default function Dashboard() {
       alert('Error de conexión al cambiar disponibilidad de la cancha')
     } finally {
       setTogglingCanchaId(null)
+    }
+  }
+
+  // Agregar nueva cancha (Solo Admin con validación de clave)
+  const handleAgregarCancha = async (e) => {
+    e.preventDefault()
+    setCanchaError('')
+    if (!nuevaCanchaForm.nombre.trim()) {
+      setCanchaError('Ingresá el nombre de la cancha.')
+      return
+    }
+    if (!nuevaCanchaForm.password) {
+      setCanchaError('Ingresá la contraseña del administrador.')
+      return
+    }
+    setGuardandoCancha(true)
+    try {
+      const res = await fetch(`${API_URL}/admin/canchas`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          nombre: nuevaCanchaForm.nombre.trim(),
+          password: nuevaCanchaForm.password,
+          precio: nuevaCanchaForm.precio ? Number(nuevaCanchaForm.precio) : (Number(config.precio_total) || 100)
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setCanchaError(data.error || 'Error al agregar la cancha')
+        return
+      }
+      setCanchas(data.canchas || [])
+      if (refreshTenant) refreshTenant()
+      setModalNuevaCancha(false)
+      setNuevaCanchaForm({ nombre: '', password: '', precio: '' })
+      alert(`¡${data.mensaje || 'Cancha agregada exitosamente'}!`)
+    } catch (err) {
+      console.error('Error al agregar cancha:', err)
+      setCanchaError('Error de conexión al agregar la cancha.')
+    } finally {
+      setGuardandoCancha(false)
+    }
+  }
+
+  // Eliminar cancha (Solo Admin con validación de clave)
+  const handleEliminarCancha = async (e) => {
+    e.preventDefault()
+    if (!modalEliminarCancha) return
+    setEliminarError('')
+    if (!eliminarPassword) {
+      setEliminarError('Ingresá la contraseña del administrador.')
+      return
+    }
+    setEliminandoCancha(true)
+    try {
+      const res = await fetch(`${API_URL}/admin/canchas/${modalEliminarCancha.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          password: eliminarPassword
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setEliminarError(data.error || 'Error al eliminar la cancha')
+        return
+      }
+      setCanchas(data.canchas || [])
+      if (refreshTenant) refreshTenant()
+      setModalEliminarCancha(null)
+      setEliminarPassword('')
+      alert(`¡${data.mensaje || 'Cancha eliminada exitosamente'}!`)
+    } catch (err) {
+      console.error('Error al eliminar cancha:', err)
+      setEliminarError('Error de conexión al eliminar la cancha.')
+    } finally {
+      setEliminandoCancha(false)
     }
   }
 
@@ -319,35 +411,62 @@ export default function Dashboard() {
 
   // Crear reserva manual
   const crearReserva = async () => {
-    if (!nuevaReserva.nombre || !nuevaReserva.fecha || !nuevaReserva.hora) {
-      return alert('Completa todos los campos obligatorios')
+    if (!nuevaReserva) return
+    if (!nuevaReserva.nombre?.trim()) {
+      return alert('Por favor, ingresá el nombre del jugador.')
+    }
+    if (!nuevaReserva.fecha) {
+      return alert('Por favor, seleccioná una fecha en el calendario.')
+    }
+    if (!nuevaReserva.hora) {
+      return alert('Por favor, seleccioná un horario disponible.')
     }
 
-    const res = await fetch(`${API_URL}/admin/reservas`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(nuevaReserva)
-    })
+    const montoCalculado = nuevaReserva.estado_pago === 'pagado'
+      ? (config.precio_total || config.monto_sena || 100)
+      : nuevaReserva.estado_pago === 'señado'
+        ? (config.monto_sena || 100)
+        : 0
 
-    if (res.status === 401) {
-      handleUnauthorized()
-      return
+    const autor = user?.nombre || user?.email || (isAdmin ? 'Admin' : 'Colaborador')
+    const payload = {
+      ...nuevaReserva,
+      nombre: nuevaReserva.nombre.trim(),
+      monto_pagado: nuevaReserva.monto_pagado !== undefined ? nuevaReserva.monto_pagado : montoCalculado,
+      creado_por: autor
     }
 
-    if (!res.ok) {
-      const errorData = await res.json()
-      alert(`Error al crear: ${errorData.error || 'Ocurrió un error inesperado'}`)
-      return
-    }
+    try {
+      const res = await fetch(`${API_URL}/admin/reservas`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload)
+      })
 
-    setNuevaReserva(null)
-    fetchReservas()
+      if (res.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
+      if (!res.ok) {
+        const errorData = await res.json()
+        alert(`Error al crear: ${errorData.error || 'Ocurrió un error inesperado'}`)
+        return
+      }
+
+      setNuevaReserva(null)
+      fetchReservas()
+    } catch (err) {
+      console.error('Error al crear reserva manual:', err)
+      alert('Error de conexión al intentar guardar la reserva manual.')
+    }
   }
 
   // Guardar Configuración
   const guardarConfig = async (e) => {
     e.preventDefault()
     setConfigSaved(false)
+    setSavingConfig(true)
 
     // Actualización inmediata en la UI de todo el sistema
     if (updateLocalConfig) {
@@ -382,7 +501,8 @@ export default function Dashboard() {
         }
         setConfigSaved(true)
         refreshTenant()
-        setTimeout(() => setConfigSaved(false), 3000)
+        alert('¡Cambios guardados correctamente!')
+        setTimeout(() => setConfigSaved(false), 4000)
       } else {
         const err = await res.json()
         alert(`Error al guardar configuración: ${err.error}`)
@@ -390,6 +510,8 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Error guardando config:', err)
       alert('Error de conexión al guardar configuración')
+    } finally {
+      setSavingConfig(false)
     }
   }
 
@@ -541,6 +663,55 @@ export default function Dashboard() {
     }
     navigator.clipboard.writeText(texto)
     alert('Lista de turnos copiada para WhatsApp')
+  }
+
+  // Exportar lista actual de turnos a archivo Excel (.xlsx)
+  const exportarExcel = () => {
+    if (reservasFiltradas.length === 0) {
+      return alert('No hay turnos para exportar con los filtros seleccionados.')
+    }
+
+    const datos = reservasFiltradas.map(r => {
+      const canchaObj = canchas.find(c => String(c.id) === String(r.cancha))
+      const estadoTexto = r.estado_pago === 'pagado'
+        ? 'Pagado Total'
+        : r.estado_pago === 'señado'
+          ? 'Señado'
+          : 'Sin Pago'
+
+      const creadorTexto = r.creado_por || (r.payment_id && String(r.payment_id).startsWith('manual_') ? 'Admin (Manual)' : 'Cliente (Online)')
+
+      return {
+        'Jugador': r.nombre || 'Sin nombre',
+        'Cancha': canchaObj?.nombre || `Cancha ${r.cancha}`,
+        'Fecha': r.fecha || '',
+        'Hora': r.hora ? `${r.hora} hs` : '',
+        'Estado de Pago': estadoTexto,
+        'Monto Pagado ($)': Number(r.monto_pagado) || 0,
+        'Registrado Por': creadorTexto
+      }
+    })
+
+    const worksheet = XLSX.utils.json_to_sheet(datos)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Reservas')
+
+    // Ancho de columnas óptimo
+    worksheet['!cols'] = [
+      { wch: 26 }, // Jugador
+      { wch: 15 }, // Cancha
+      { wch: 15 }, // Fecha
+      { wch: 12 }, // Hora
+      { wch: 16 }, // Estado de Pago
+      { wch: 16 }, // Monto Pagado
+      { wch: 24 }  // Registrado Por
+    ]
+
+    const nombreComplejo = (config.nombre || nombreNegocio || 'Complejo').replace(/[^a-zA-Z0-9_-]/g, '_')
+    const filtroNombre = filterPeriodo || 'turnos'
+    const fileName = `Reservas_${nombreComplejo}_${filtroNombre}_${todayISO()}.xlsx`
+
+    XLSX.writeFile(workbook, fileName)
   }
 
   return (
@@ -736,17 +907,27 @@ export default function Dashboard() {
                     Copiar Hoy (WhatsApp)
                   </button>
                   <button
-                    onClick={() => setNuevaReserva({
-                      nombre: '',
-                      cancha: canchas[0]?.id || '1',
-                      fecha: hoy,
-                      hora: businessHorarios[0] || '15:00',
-                      estado_pago: 'señado',
-                      monto_pagado: config.monto_sena || 100
-                    })}
-                    className="w-full sm:w-auto bg-purple-600 hover:bg-purple-500 active:scale-95 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+                    onClick={() => {
+                      if (nuevaReserva) {
+                        setNuevaReserva(null)
+                      } else {
+                        setNuevaReserva({
+                          nombre: '',
+                          cancha: canchas[0]?.id || '1',
+                          fecha: hoy,
+                          hora: '',
+                          estado_pago: 'señado',
+                          monto_pagado: config.monto_sena || 100
+                        })
+                      }
+                    }}
+                    className={`w-full sm:w-auto text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 active:scale-95 ${
+                      nuevaReserva 
+                        ? 'bg-purple-800 hover:bg-purple-900 text-white ring-2 ring-purple-400' 
+                        : 'bg-purple-600 hover:bg-purple-500 text-white'
+                    }`}
                   >
-                    + Nueva Reserva Manual
+                    {nuevaReserva ? '✕ Cerrar Reserva' : '+ Nueva Reserva Manual'}
                   </button>
                 </div>
               </div>
@@ -836,84 +1017,164 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* FORMULARIO NUEVA RESERVA MANUAL (DESPLEGABLE RESPONSIVE) */}
+            {/* FORMULARIO NUEVA RESERVA MANUAL (INTERACTIVO CON CALENDARIO Y CANCHAS) */}
             {nuevaReserva && (
-              <div className="bg-white p-3.5 sm:p-6 shadow-md rounded-2xl border border-purple-200 border-l-4 border-l-purple-600 flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 items-stretch sm:items-end animate-fade-in w-full">
-                <div className="flex-1 min-w-[180px]">
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nombre Jugador</label>
-                  <input
-                    className="w-full border border-slate-300 p-2 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                    value={nuevaReserva.nombre}
-                    onChange={e => setNuevaReserva({ ...nuevaReserva, nombre: e.target.value })}
-                  />
-                </div>
-
-                <div className="w-full sm:w-40">
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cancha</label>
-                  <select
-                    className="w-full border border-slate-300 p-2 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none font-medium"
-                    value={nuevaReserva.cancha}
-                    onChange={e => setNuevaReserva({ ...nuevaReserva, cancha: e.target.value })}
-                  >
-                    {canchas.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.nombre} {!c.activa ? '(Pausada)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="w-full sm:flex-1 sm:min-w-[140px]">
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fecha</label>
-                  <input
-                    type="date"
-                    min={hoy}
-                    className="w-full border border-slate-300 p-2 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                    value={nuevaReserva.fecha}
-                    onChange={e => setNuevaReserva({ ...nuevaReserva, fecha: e.target.value })}
-                  />
-                </div>
-
-                <div className="w-full sm:w-32">
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hora</label>
-                  <select
-                    className="w-full border border-slate-300 p-2 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none font-medium"
-                    value={nuevaReserva.hora}
-                    onChange={e => setNuevaReserva({ ...nuevaReserva, hora: e.target.value })}
-                  >
-                    {businessHorarios.map(h => (
-                      <option key={h} value={h}>{h} hs</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="w-full sm:flex-1 sm:min-w-[140px]">
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estado de Pago</label>
-                  <select
-                    className="w-full border border-slate-300 p-2 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                    value={nuevaReserva.estado_pago}
-                    onChange={e => setNuevaReserva({ ...nuevaReserva, estado_pago: e.target.value })}
-                  >
-                    <option value="señado">Señado</option>
-                    <option value="pagado">Pagado Total</option>
-                    <option value="sin_pago">Sin Pago</option>
-                  </select>
-                </div>
-
-                <div className="flex gap-2 w-full mt-1">
+              <div className="bg-white p-4 sm:p-7 shadow-lg rounded-2xl sm:rounded-3xl border border-purple-200 border-l-4 border-l-purple-600 mb-6 animate-fade-in w-full">
+                
+                {/* Cabecera del formulario */}
+                <div className="flex items-center justify-between pb-4 mb-5 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-black text-slate-800 flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-purple-600 animate-pulse"></span>
+                      Nueva Reserva Manual
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                      Seleccioná la cancha, el día en el calendario y el horario disponible para agendar el turno.
+                    </p>
+                  </div>
                   <button
-                    onClick={crearReserva}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold py-2.5 px-4 rounded-xl text-xs sm:text-sm transition-all shadow-sm"
-                  >
-                    Confirmar Reserva
-                  </button>
-                  <button
+                    type="button"
                     onClick={() => setNuevaReserva(null)}
-                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm transition-colors"
+                    className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-100 transition-colors"
+                    title="Cerrar formulario"
                   >
-                    Cancelar
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                   </button>
                 </div>
+
+                {/* 1. Nombre y Estado de Pago */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                  <div className="lg:col-span-2">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Nombre del Jugador <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 px-4 py-2.5 rounded-xl text-sm font-medium focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none transition-all"
+                      value={nuevaReserva.nombre}
+                      onChange={e => setNuevaReserva({ ...nuevaReserva, nombre: e.target.value })}
+                      autoFocus
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Estado de Pago
+                    </label>
+                    <select
+                      className="w-full border border-slate-300 px-3 py-2.5 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-purple-500 focus:outline-none bg-slate-50 cursor-pointer"
+                      value={nuevaReserva.estado_pago}
+                      onChange={e => {
+                        const nuevoEstado = e.target.value
+                        const canchaObj = canchas.find(c => String(c.id) === String(nuevaReserva.cancha))
+                        const precioCompleto = Number(canchaObj?.precio) || Number(config.precio_total) || 100
+                        let nuevoMonto = 0
+                        if (nuevoEstado === 'pagado') nuevoMonto = precioCompleto
+                        else if (nuevoEstado === 'señado') nuevoMonto = Number(config.monto_sena) || 100
+                        setNuevaReserva({
+                          ...nuevaReserva,
+                          estado_pago: nuevoEstado,
+                          monto_pagado: nuevoMonto
+                        })
+                      }}
+                    >
+                      <option value="señado">Señado (${config.monto_sena || 100})</option>
+                      <option value="pagado">Pagado Total (${canchas.find(c => String(c.id) === String(nuevaReserva.cancha))?.precio || config.precio_total || 100})</option>
+                      <option value="sin_pago">Sin Pago ($0)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 2. Selector de Cancha */}
+                <div className="mb-4">
+                  <SelectorCancha
+                    canchas={canchas}
+                    selectedCancha={nuevaReserva.cancha}
+                    onSelect={canchaId => {
+                      setNuevaReserva(prev => ({
+                        ...prev,
+                        cancha: canchaId,
+                        hora: ''
+                      }))
+                    }}
+                  />
+                </div>
+
+                {/* 3. Calendario con disponibilidad visual */}
+                <div className="mb-4">
+                  <Calendario
+                    formFecha={nuevaReserva.fecha}
+                    formCancha={nuevaReserva.cancha}
+                    reservas={reservas}
+                    horarios={businessHorarios}
+                    allowAllDates={true}
+                    onSelectDay={fechaIso => {
+                      setNuevaReserva(prev => ({
+                        ...prev,
+                        fecha: fechaIso,
+                        hora: ''
+                      }))
+                    }}
+                  />
+                </div>
+
+                {/* 4. Selector de Horarios */}
+                <div className="mb-6">
+                  <SelectorHorario
+                    formFecha={nuevaReserva.fecha}
+                    formCancha={nuevaReserva.cancha}
+                    formHora={nuevaReserva.hora}
+                    reservas={reservas}
+                    horarios={businessHorarios}
+                    allowPastHours={true}
+                    onSelectHour={hora => {
+                      setNuevaReserva(prev => ({
+                        ...prev,
+                        hora
+                      }))
+                    }}
+                  />
+                </div>
+
+                {/* 5. Resumen del turno y Botones de Acción */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="text-xs sm:text-sm text-slate-700 font-medium text-center sm:text-left">
+                    <p className="font-bold text-slate-800 text-sm sm:text-base">
+                      {nuevaReserva.nombre?.trim() ? nuevaReserva.nombre : 'Jugador por confirmar'}
+                    </p>
+                    <p className="text-slate-500">
+                      Cancha: <span className="font-semibold text-slate-800">{canchas.find(c => String(c.id) === String(nuevaReserva.cancha))?.nombre || `Cancha ${nuevaReserva.cancha}`}</span>
+                      {' • '}
+                      Fecha: <span className="font-semibold text-slate-800">{nuevaReserva.fecha || 'Sin fecha'}</span>
+                      {' • '}
+                      Hora: <span className="font-semibold text-blue-600">{nuevaReserva.hora ? `${nuevaReserva.hora} hs` : 'Sin horario seleccionado'}</span>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => setNuevaReserva(null)}
+                      className="flex-1 sm:flex-none bg-white hover:bg-slate-100 text-slate-700 font-semibold py-2.5 px-4 rounded-xl border border-slate-300 text-xs sm:text-sm transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={crearReserva}
+                      disabled={!nuevaReserva.nombre?.trim() || !nuevaReserva.fecha || !nuevaReserva.hora}
+                      className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 text-white font-bold py-2.5 px-6 rounded-xl text-xs sm:text-sm transition-all shadow-sm shadow-emerald-200 flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Confirmar Reserva
+                    </button>
+                  </div>
+                </div>
+
               </div>
             )}
 
@@ -970,7 +1231,17 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end">
+                <div className="flex flex-wrap items-center gap-2 justify-end">
+                  <button
+                    onClick={exportarExcel}
+                    className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+                    title="Exportar los turnos visibles a archivo Excel (.xlsx)"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Exportar a Excel
+                  </button>
                   <button
                     onClick={() => copiarWhatsApp(reservasSemana, 'Turnos de la SEMANA')}
                     className="w-full sm:w-auto bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1"
@@ -1138,6 +1409,13 @@ export default function Dashboard() {
                             <option value="sin_pago">Sin Pago</option>
                           </select>
                         </div>
+                        <div className="bg-slate-50 p-2 rounded-xl text-[11px] text-slate-600 flex justify-between items-center border border-slate-200">
+                          <span>Registrado por:</span>
+                          <strong className="text-slate-800">
+                            {editando.creado_por || (editando.payment_id && String(editando.payment_id).startsWith('manual_') ? 'Admin (Manual)' : 'Cliente (Online)')}
+                          </strong>
+                          <span className="text-[9px] text-slate-400 font-medium">(No editable)</span>
+                        </div>
                         <div className="flex gap-2 pt-1">
                           <button
                             onClick={guardarEdicion}
@@ -1197,6 +1475,9 @@ export default function Dashboard() {
                         <span className="font-medium capitalize text-[11px] sm:text-xs truncate">
                           {formatearTurno(r.fecha, r.hora)}
                         </span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                          {r.creado_por || (r.payment_id && String(r.payment_id).startsWith('manual_') ? 'Admin (Manual)' : 'Online')}
+                        </span>
                       </div>
 
                       <div className="flex justify-end gap-2 pt-1 border-t border-slate-50">
@@ -1231,19 +1512,20 @@ export default function Dashboard() {
                       <th className="px-6 py-4 text-center">Cancha</th>
                       <th className="px-6 py-4">Turno (Fecha y Hora)</th>
                       <th className="px-6 py-4 text-center">Estado de Pago</th>
+                      <th className="px-6 py-4 text-center">Registrado Por</th>
                       <th className="px-6 py-4 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {loading ? (
                       <tr>
-                        <td colSpan="5" className="px-6 py-12 text-center text-slate-400">
+                        <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
                           Cargando reservas...
                         </td>
                       </tr>
                     ) : reservasPaginadas.length === 0 ? (
                       <tr>
-                        <td colSpan="5" className="px-6 py-12 text-center text-slate-400">
+                        <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
                           No se encontraron reservas con los filtros aplicados ({filterPeriodo.toUpperCase()}).
                         </td>
                       </tr>
@@ -1350,6 +1632,34 @@ export default function Dashboard() {
                             )}
                           </td>
 
+                          {/* REGISTRADO POR */}
+                          <td className="px-6 py-4 text-center">
+                            {editando?.id === r.id ? (
+                              <div className="flex flex-col items-center">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                                  {r.creado_por || (r.payment_id && String(r.payment_id).startsWith('manual_') ? 'Admin (Manual)' : 'Cliente (Online)')}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium mt-0.5">(No editable)</span>
+                              </div>
+                            ) : (
+                              r.payment_id && String(r.payment_id).startsWith('manual_') || (r.creado_por && !r.creado_por.includes('Online')) ? (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200" title="Reserva manual">
+                                  <svg className="w-3.5 h-3.5 text-purple-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                  </svg>
+                                  {r.creado_por || 'Admin (Manual)'}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Reserva online del cliente">
+                                  <svg className="w-3.5 h-3.5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" />
+                                  </svg>
+                                  Cliente (Online)
+                                </span>
+                              )
+                            )}
+                          </td>
+
                           {/* ACCIONES */}
                           <td className="px-6 py-4 text-center">
                             <div className="flex justify-center gap-2">
@@ -1438,8 +1748,30 @@ export default function Dashboard() {
                   </p>
                 </div>
 
-                <div className="bg-blue-50 text-blue-800 text-xs font-bold px-3 py-1 rounded-xl border border-blue-200">
-                  Total: {canchas.length}
+                <div className="flex items-center gap-2">
+                  <div className="bg-blue-50 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-xl border border-blue-200">
+                    Total: {canchas.length}
+                  </div>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCanchaError('')
+                        setNuevaCanchaForm({
+                          nombre: `Cancha ${canchas.length + 1}`,
+                          password: '',
+                          precio: config.precio_total || tenantPrecioTotal || ''
+                        })
+                        setModalNuevaCancha(true)
+                      }}
+                      className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-sm transition-all cursor-pointer"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" />
+                      </svg>
+                      + Agregar Cancha
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1448,7 +1780,8 @@ export default function Dashboard() {
                 <div>
                   <p className="font-bold text-slate-700 mb-0.5">Gestión Operativa de Canchas</p>
                   <p>
-                    Tanto colaboradores como administradores pueden <strong>activar o pausar</strong> la disponibilidad de cada cancha en cualquier momento (por lluvia, mantenimiento o refacciones).
+                    Tanto colaboradores como administradores pueden <strong>activar o pausar</strong> la disponibilidad de cada cancha en cualquier momento.
+                    {isAdmin ? ' Como administrador, podés agregar más canchas autorizando la operación con tu contraseña de administrador.' : ' Solo el administrador puede agregar nuevas canchas.'}
                   </p>
                 </div>
               </div>
@@ -1483,17 +1816,41 @@ export default function Dashboard() {
                               </div>
                               <div className="min-w-0">
                                 <h3 className="font-bold text-slate-800 text-xs sm:text-base truncate">{c.nombre}</h3>
-                                <span className="text-[9px] sm:text-xs text-slate-400 font-mono">ID: {c.id}</span>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="text-[9px] sm:text-xs text-slate-400 font-mono">ID: {c.id}</span>
+                                  <span className="text-[10px] sm:text-xs font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                    ${c.precio || config.precio_total || tenantPrecioTotal || 100} completa
+                                  </span>
+                                </div>
                               </div>
                             </div>
 
-                            <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full border shrink-0 ${
-                              isActiva
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-rose-50 text-rose-700 border-rose-200'
-                            }`}>
-                              {isActiva ? 'Disponible' : 'Pausada'}
-                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full border ${
+                                isActiva
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200'
+                              }`}>
+                                {isActiva ? 'Disponible' : 'Pausada'}
+                              </span>
+
+                              {isAdmin && canchas.length > 1 && (
+                                <button
+                                  type="button"
+                                  title="Eliminar cancha"
+                                  onClick={() => {
+                                    setEliminarError('')
+                                    setEliminarPassword('')
+                                    setModalEliminarCancha(c)
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           <p className="text-[11px] sm:text-xs text-slate-500 mb-3">
@@ -1528,6 +1885,171 @@ export default function Dashboard() {
               )}
 
             </div>
+
+            {/* MODAL: AGREGAR NUEVA CANCHA (SOLO ADMIN CON CONTRASEÑA) */}
+            {modalNuevaCancha && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+                <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                      <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-sm font-black">
+                        +
+                      </span>
+                      Agregar Nueva Cancha
+                    </h3>
+                    <button
+                      onClick={() => setModalNuevaCancha(false)}
+                      className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 rounded-lg cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-slate-500 mb-4">
+                    Solo el administrador puede incorporar canchas al complejo ingresando su contraseña de acceso.
+                  </p>
+
+                  {canchaError && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl mb-4">
+                      {canchaError}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleAgregarCancha} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                        Nombre de la Cancha
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        value={nuevaCanchaForm.nombre}
+                        onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, nombre: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                        Precio de la Cancha Completa ($ ARS)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold text-xs sm:text-sm">$</span>
+                        <input
+                          type="number"
+                          min="1"
+                          className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                          value={nuevaCanchaForm.precio}
+                          onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, precio: e.target.value })}
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Si se deja vacío, utilizará el precio general del negocio (${config.precio_total || tenantPrecioTotal || 100}).
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                        Contraseña de Administrador
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        value={nuevaCanchaForm.password}
+                        onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, password: e.target.value })}
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Requerida por seguridad para autorizar la creación.
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        type="button"
+                        disabled={guardandoCancha}
+                        onClick={() => setModalNuevaCancha(false)}
+                        className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={guardandoCancha}
+                        className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        {guardandoCancha ? 'Guardando...' : 'Agregar Cancha'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL: ELIMINAR CANCHA (SOLO ADMIN CON CONTRASEÑA) */}
+            {modalEliminarCancha && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+                <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                      <span className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center text-sm font-black">
+                        ✕
+                      </span>
+                      Eliminar {modalEliminarCancha.nombre}
+                    </h3>
+                    <button
+                      onClick={() => setModalEliminarCancha(null)}
+                      className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 rounded-lg cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-slate-500 mb-4">
+                    ¿Estás seguro de que deseás eliminar esta cancha? Para confirmar esta acción ingresá tu contraseña de administrador.
+                  </p>
+
+                  {eliminarError && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl mb-4">
+                      {eliminarError}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleEliminarCancha} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                        Contraseña de Administrador
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                        value={eliminarPassword}
+                        onChange={e => setEliminarPassword(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        type="button"
+                        disabled={eliminandoCancha}
+                        onClick={() => setModalEliminarCancha(null)}
+                        className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={eliminandoCancha}
+                        className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        {eliminandoCancha ? 'Eliminando...' : 'Eliminar Cancha'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
 
           </div>
         )}
@@ -1664,20 +2186,45 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Monto de la Seña por Reserva ($ ARS)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold">$</span>
-                  <input
-                    type="number"
-                    min="1"
-                    className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-bold text-xs sm:text-base"
-                    value={config.monto_sena || 100}
-                    onChange={e => setConfig({ ...config, monto_sena: e.target.value })}
-                    required
-                  />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Precio de la Cancha Completa ($ ARS)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold">$</span>
+                    <input
+                      type="number"
+                      min="1"
+                      className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-bold text-xs sm:text-base"
+                      value={config.precio_total || ''}
+                      onChange={e => setConfig({ ...config, precio_total: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Valor total del alquiler de la cancha por turno.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Monto de la Seña por Reserva ($ ARS)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold">$</span>
+                    <input
+                      type="number"
+                      min="1"
+                      className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-bold text-xs sm:text-base"
+                      value={config.monto_sena || ''}
+                      onChange={e => setConfig({ ...config, monto_sena: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Monto que abona el cliente para asegurar y reservar el turno online.
+                  </p>
                 </div>
               </div>
 
@@ -1693,11 +2240,31 @@ export default function Dashboard() {
                 />
               </div>
 
+              {configSaved && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-center text-xs sm:text-sm font-bold animate-fade-in flex items-center justify-center gap-2">
+                  <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  ¡Cambios guardados correctamente!
+                </div>
+              )}
+
               <button
                 type="submit"
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-xl transition-all shadow-sm text-xs sm:text-base"
+                disabled={savingConfig}
+                className={`w-full py-3 active:scale-95 text-white font-bold rounded-xl transition-all shadow-sm text-xs sm:text-base flex items-center justify-center gap-2 ${
+                  configSaved 
+                    ? 'bg-emerald-600 hover:bg-emerald-700' 
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
               >
-                Guardar Configuración y Horarios
+                {savingConfig ? (
+                  'Guardando cambios...'
+                ) : configSaved ? (
+                  '✓ ¡Cambios Guardados!'
+                ) : (
+                  'Guardar Configuración y Horarios'
+                )}
               </button>
 
             </form>

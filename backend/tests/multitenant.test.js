@@ -181,6 +181,16 @@ test('11. Colaborador puede alternar disponibilidad/visibilidad de una cancha (P
     const data = await res.json()
     assert.equal(data.ok, true)
     assert.ok(Array.isArray(data.canchas))
+
+    // Restaurar inmediatamente Cancha 1 a activa: true para no dejarla pausada en el sistema
+    await fetch(`${API_URL}/admin/canchas/1/disponibilidad`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenColaboradorA}`
+      },
+      body: JSON.stringify({ activa: true })
+    })
   }
 })
 
@@ -231,6 +241,84 @@ test('14. Admin puede actualizar horarios configurados del negocio (PUT /admin/c
   assert.equal(data.ok, true)
 })
 
-test.after(() => {
-  server.close()
+test('15. Solo Admin puede agregar canchas con contraseña válida (POST /admin/canchas)', async () => {
+  // 1. Colaborador intenta agregar cancha -> 403 Forbidden
+  const resColab = await fetch(`${API_URL}/admin/canchas`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenColaboradorA}`
+    },
+    body: JSON.stringify({ nombre: 'Cancha Test Colab', password: 'admin123' })
+  })
+  assert.equal(resColab.status, 403, 'Colaborador no debe poder agregar canchas')
+
+  // 2. Admin sin contraseña -> 400 Bad Request
+  const resSinPass = await fetch(`${API_URL}/admin/canchas`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenTenantA}`
+    },
+    body: JSON.stringify({ nombre: 'Cancha Test Sin Pass' })
+  })
+  assert.equal(resSinPass.status, 400, 'Debe requerir contraseña de administrador')
+
+  // 3. Admin con contraseña incorrecta -> 403 Forbidden
+  const resPassErr = await fetch(`${API_URL}/admin/canchas`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenTenantA}`
+    },
+    body: JSON.stringify({ nombre: 'Cancha Test Pass Invalida', password: 'clave-incorrecta' })
+  })
+  assert.equal(resPassErr.status, 403, 'Debe rechazar contraseña incorrecta')
+
+  // 4. Admin con contraseña correcta -> 200 OK
+  const adminPass = process.env.ADMIN_PASSWORD || 'admin123'
+  const resOk = await fetch(`${API_URL}/admin/canchas`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenTenantA}`
+    },
+    body: JSON.stringify({ nombre: 'Cancha Test Exito', password: adminPass })
+  })
+  assert.equal(resOk.status, 200, 'Admin con clave correcta debe crear la cancha')
+  const dataOk = await resOk.json()
+  assert.equal(dataOk.ok, true)
+  assert.ok(dataOk.canchas.some(c => c.nombre === 'Cancha Test Exito'), 'La cancha agregada debe existir en la lista')
 })
+
+test('16. Admin puede eliminar cancha agregada con contraseña válida (DELETE /admin/canchas/:id)', async () => {
+  // Obtener lista para buscar la cancha agregada
+  const resList = await fetch(`${API_URL}/admin/canchas`, {
+    headers: { Authorization: `Bearer ${tokenTenantA}` }
+  })
+  const canchas = await resList.json()
+  const canchaTest = canchas.find(c => c.nombre === 'Cancha Test Exito')
+  assert.ok(canchaTest, 'Debe existir la cancha creada previamente')
+
+  // Eliminar con contraseña correcta
+  const adminPass = process.env.ADMIN_PASSWORD || 'admin123'
+  const resDel = await fetch(`${API_URL}/admin/canchas/${canchaTest.id}`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenTenantA}`
+    },
+    body: JSON.stringify({ password: adminPass })
+  })
+  assert.equal(resDel.status, 200, 'Debe eliminar la cancha con clave de admin')
+  const dataDel = await resDel.json()
+  assert.equal(dataDel.ok, true)
+  assert.ok(!dataDel.canchas.some(c => c.nombre === 'Cancha Test Exito'), 'La cancha ya no debe figurar en la lista')
+})
+
+test.after(() => {
+  server.close(() => {
+    process.exit(0)
+  })
+})
+

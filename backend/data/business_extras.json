@@ -3,7 +3,7 @@
     {
       "id": "1",
       "nombre": "Cancha 1",
-      "activa": false
+      "activa": true
     },
     {
       "id": "2",

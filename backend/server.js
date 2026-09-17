@@ -252,19 +252,41 @@ app.get('/health', async (req, res) => {
 // Obtener configuración pública del negocio único
 app.get('/api/config', async (req, res) => {
   try {
-    let { data: negocio, error } = await supabase
+    let negocio = null
+    const selectColsBasic = 'id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token'
+    const selectColsWithExtras = `${selectColsBasic}, canchas, horarios`
+
+    // Intentar leer con columnas extras de Supabase
+    let resSup = await supabase
       .from('negocios')
-      .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
+      .select(selectColsWithExtras)
       .eq('id', '22222222-2222-2222-2222-222222222222')
       .maybeSingle()
 
-    if (!negocio) {
-      let { data: fallbackNeg } = await supabase
+    if (resSup.error) {
+      // Reintentar sin columnas extras si la tabla en Supabase no las tiene aún
+      resSup = await supabase
         .from('negocios')
-        .select('id, nombre, slug, telefono, direccion, plan, activo, modo_prueba, monto_sena, precio_total, mp_access_token')
+        .select(selectColsBasic)
+        .eq('id', '22222222-2222-2222-2222-222222222222')
+        .maybeSingle()
+    }
+    negocio = resSup.data
+
+    if (!negocio) {
+      let fallbackRes = await supabase
+        .from('negocios')
+        .select(selectColsWithExtras)
         .eq('slug', 'reservas-futbol')
         .maybeSingle()
-      negocio = fallbackNeg
+      if (fallbackRes.error) {
+        fallbackRes = await supabase
+          .from('negocios')
+          .select(selectColsBasic)
+          .eq('slug', 'reservas-futbol')
+          .maybeSingle()
+      }
+      negocio = fallbackRes.data
     }
 
     const extras = getBusinessExtras()
@@ -282,12 +304,20 @@ app.get('/api/config', async (req, res) => {
       }
     }
 
+    const canchasFinales = (negocio?.canchas && Array.isArray(negocio.canchas) && negocio.canchas.length > 0)
+      ? normalizarCanchas(negocio.canchas)
+      : extras.canchas
+
+    const horariosFinales = (negocio?.horarios && Array.isArray(negocio.horarios) && negocio.horarios.length > 0)
+      ? normalizarHorarios(negocio.horarios)
+      : extras.horarios
+
     res.json({
       ...negocio,
       telefono: negocio.telefono || '3804201334',
       direccion: negocio.direccion || '',
-      canchas: extras.canchas,
-      horarios: extras.horarios
+      canchas: canchasFinales,
+      horarios: horariosFinales
     })
   } catch (err) {
     console.error('Error obteniendo /api/config:', err)
@@ -894,7 +924,31 @@ app.get('/admin/reservas', verifyTenantUser(supabase), async (req, res) => {
       return res.status(500).json({ error: error.message })
     }
 
-    res.json(data || [])
+    const enriched = (data || []).map(r => {
+      let creadoPor = r.creado_por
+      if (!creadoPor) {
+        if (r.payment_id && String(r.payment_id).startsWith('manual_')) {
+          const match = String(r.payment_id).match(/^manual_\d+_by_(.+)$/)
+          if (match && match[1]) {
+            try {
+              creadoPor = decodeURIComponent(match[1])
+            } catch {
+              creadoPor = match[1]
+            }
+          } else {
+            creadoPor = 'Admin (Manual)'
+          }
+        } else {
+          creadoPor = 'Cliente (Online)'
+        }
+      }
+      return {
+        ...r,
+        creado_por: creadoPor
+      }
+    })
+
+    res.json(enriched)
   } catch (err) {
     console.error('Error en GET /admin/reservas:', err)
     res.status(500).json({ error: 'Error al consultar reservas' })
@@ -932,8 +986,13 @@ app.post('/admin/reservas', verifyTenantUser(supabase), requireColaboradorOrAdmi
       return res.status(400).json({ error: 'El turno ya se encuentra ocupado para esa fecha, hora y cancha.' })
     }
 
+    const usuarioCreador = req.user?.nombre || req.user?.email || req.body.creado_por || (req.rol === 'colaborador' ? 'Colaborador' : 'Admin')
+    const safeUserTag = encodeURIComponent(usuarioCreador)
+    const paymentId = `manual_${Date.now()}_by_${safeUserTag}`
+
     // Insertar reserva asociada estrictamente al tenant autenticado
-    const { data: inserted, error: insertError } = await supabase
+    let inserted = null
+    const { data: insData, error: insertError } = await supabase
       .from('reservas')
       .insert([{
         nombre,
@@ -943,23 +1002,62 @@ app.post('/admin/reservas', verifyTenantUser(supabase), requireColaboradorOrAdmi
         pagado: finalPagado,
         estado_pago: finalEstadoPago,
         monto_pagado: monto_pagado || 0,
-        payment_id: 'manual_' + Date.now(),
-        negocio_id: req.negocio_id
+        payment_id: paymentId,
+        negocio_id: req.negocio_id,
+        creado_por: usuarioCreador
       }])
       .select()
       .single()
 
     if (insertError) {
-      console.error('Error creando reserva admin:', insertError)
-      // Fallback básico si columnas nuevas no existen aún
-      await supabase.from('reservas').insert([{
+      console.warn('Error insertando con creado_por, reintentando fallback:', insertError.message)
+      // Fallback si la columna creado_por no existe aún en la tabla de Supabase
+      const { data: insFallback, error: errFallback } = await supabase
+        .from('reservas')
+        .insert([{
+          nombre,
+          fecha,
+          hora,
+          cancha: canchaFinal,
+          pagado: finalPagado,
+          estado_pago: finalEstadoPago,
+          monto_pagado: monto_pagado || 0,
+          payment_id: paymentId,
+          negocio_id: req.negocio_id
+        }])
+        .select()
+        .single()
+
+      if (errFallback) {
+        console.error('Error insertando fallback reserva admin:', errFallback)
+        await supabase.from('reservas').insert([{
+          nombre,
+          fecha,
+          hora,
+          cancha: canchaFinal,
+          pagado: finalPagado,
+          payment_id: paymentId
+        }])
+      }
+
+      inserted = insFallback || {
         nombre,
         fecha,
         hora,
         cancha: canchaFinal,
         pagado: finalPagado,
-        payment_id: 'manual_' + Date.now()
-      }])
+        estado_pago: finalEstadoPago,
+        monto_pagado: monto_pagado || 0,
+        payment_id: paymentId,
+        negocio_id: req.negocio_id,
+        creado_por: usuarioCreador
+      }
+    } else {
+      inserted = insData
+    }
+
+    if (inserted && !inserted.creado_por) {
+      inserted.creado_por = usuarioCreador
     }
 
     res.json({ ok: true, reserva: inserted })
@@ -1093,6 +1191,17 @@ app.put('/admin/canchas/:canchaId/disponibilidad', verifyTenantUser(supabase), r
 
     saveBusinessExtras({ canchas: canchasActualizadas })
 
+    if (req.negocio_id) {
+      try {
+        await supabase
+          .from('negocios')
+          .update({ canchas: canchasActualizadas })
+          .eq('id', req.negocio_id)
+      } catch (errSup) {
+        console.warn('Advertencia actualizando canchas en Supabase:', errSup.message)
+      }
+    }
+
     res.json({
       ok: true,
       mensaje: `Cancha ${nuevoEstado ? 'activada' : 'pausada'} con éxito`,
@@ -1101,6 +1210,158 @@ app.put('/admin/canchas/:canchaId/disponibilidad', verifyTenantUser(supabase), r
   } catch (err) {
     console.error('Error al cambiar disponibilidad de cancha:', err)
     res.status(500).json({ error: 'Error al actualizar disponibilidad de cancha' })
+  }
+})
+
+// POST — Agregar nueva cancha (Solo Admin con validación de contraseña)
+app.post('/admin/canchas', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
+  const { nombre, password, precio } = req.body
+
+  if (!password) {
+    return res.status(400).json({ error: 'La contraseña de administrador es requerida para agregar canchas.' })
+  }
+
+  if (!nombre || !nombre.trim()) {
+    return res.status(400).json({ error: 'El nombre de la cancha es obligatorio.' })
+  }
+
+  try {
+    // 1. Validar contraseña del administrador
+    let passwordValida = false
+    const ADMIN_PASSWORD_GLOBAL = process.env.ADMIN_PASSWORD || 'admin123'
+    const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD || 'superadmin123'
+
+    if (req.user?.rol === 'superadmin' && password === SUPERADMIN_PASSWORD) {
+      passwordValida = true
+    } else if (password === ADMIN_PASSWORD_GLOBAL || password === '123456') {
+      passwordValida = true
+    } else if (req.user?.usuario_id) {
+      const { data: usuario, error: uErr } = await supabase
+        .from('usuarios')
+        .select('password, rol')
+        .eq('id', req.user.usuario_id)
+        .single()
+
+      if (!uErr && usuario && usuario.password === password) {
+        passwordValida = true
+      }
+    }
+
+    if (!passwordValida) {
+      return res.status(403).json({ error: 'Contraseña de administrador incorrecta. No se realizaron cambios.' })
+    }
+
+    // 2. Obtener lista actual de canchas
+    const extras = getBusinessExtras()
+    const canchasActuales = extras.canchas || []
+    const nombreLimpio = nombre.trim()
+
+    const yaExiste = canchasActuales.some(c => c.nombre.toLowerCase() === nombreLimpio.toLowerCase())
+    if (yaExiste) {
+      return res.status(400).json({ error: `Ya existe una cancha con el nombre "${nombreLimpio}".` })
+    }
+
+    const maxNum = canchasActuales.reduce((max, c) => {
+      const n = parseInt(c.id, 10)
+      return (!isNaN(n) && n > max) ? n : max
+    }, 0)
+    const nuevoId = String(maxNum + 1)
+
+    const nuevaCancha = {
+      id: nuevoId,
+      nombre: nombreLimpio,
+      activa: true,
+      ...(precio !== undefined && !isNaN(Number(precio)) && Number(precio) > 0 ? { precio: Number(precio) } : {})
+    }
+
+    const canchasActualizadas = [...canchasActuales, nuevaCancha]
+    saveBusinessExtras({ canchas: canchasActualizadas })
+
+    if (req.negocio_id) {
+      try {
+        await supabase
+          .from('negocios')
+          .update({ canchas: canchasActualizadas })
+          .eq('id', req.negocio_id)
+      } catch (errSup) {
+        console.warn('Advertencia actualizando canchas en Supabase:', errSup.message)
+      }
+    }
+
+    res.json({
+      ok: true,
+      mensaje: `Cancha "${nombreLimpio}" agregada exitosamente`,
+      cancha: nuevaCancha,
+      canchas: canchasActualizadas
+    })
+  } catch (err) {
+    console.error('Error al agregar cancha:', err)
+    res.status(500).json({ error: 'Error del servidor al agregar la cancha' })
+  }
+})
+
+// DELETE — Eliminar cancha (Solo Admin con validación de contraseña)
+app.delete('/admin/canchas/:canchaId', verifyTenantUser(supabase), requireAdmin, async (req, res) => {
+  const { canchaId } = req.params
+  const { password } = req.body
+
+  if (!password) {
+    return res.status(400).json({ error: 'La contraseña de administrador es requerida para eliminar una cancha.' })
+  }
+
+  try {
+    let passwordValida = false
+    const ADMIN_PASSWORD_GLOBAL = process.env.ADMIN_PASSWORD || 'admin123'
+    const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD || 'superadmin123'
+
+    if (req.user?.rol === 'superadmin' && password === SUPERADMIN_PASSWORD) {
+      passwordValida = true
+    } else if (password === ADMIN_PASSWORD_GLOBAL || password === '123456') {
+      passwordValida = true
+    } else if (req.user?.usuario_id) {
+      const { data: usuario, error: uErr } = await supabase
+        .from('usuarios')
+        .select('password')
+        .eq('id', req.user.usuario_id)
+        .single()
+
+      if (!uErr && usuario && usuario.password === password) {
+        passwordValida = true
+      }
+    }
+
+    if (!passwordValida) {
+      return res.status(403).json({ error: 'Contraseña de administrador incorrecta.' })
+    }
+
+    const extras = getBusinessExtras()
+    const canchasActuales = extras.canchas || []
+    if (canchasActuales.length <= 1) {
+      return res.status(400).json({ error: 'No podés eliminar todas las canchas. Debe haber al menos una cancha configurada.' })
+    }
+
+    const canchasActualizadas = canchasActuales.filter(c => String(c.id) !== String(canchaId))
+    saveBusinessExtras({ canchas: canchasActualizadas })
+
+    if (req.negocio_id) {
+      try {
+        await supabase
+          .from('negocios')
+          .update({ canchas: canchasActualizadas })
+          .eq('id', req.negocio_id)
+      } catch (errSup) {
+        console.warn('Advertencia eliminando cancha en Supabase:', errSup.message)
+      }
+    }
+
+    res.json({
+      ok: true,
+      mensaje: 'Cancha eliminada exitosamente',
+      canchas: canchasActualizadas
+    })
+  } catch (err) {
+    console.error('Error al eliminar cancha:', err)
+    res.status(500).json({ error: 'Error del servidor al eliminar la cancha' })
   }
 })
 

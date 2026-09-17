@@ -1,9 +1,17 @@
 import { useState } from 'react'
-import { getCalendarDays, isFechaDentroDeSemana, weekDays, ALLOWED_HOURS } from '../utils/dateUtils'
+import { getCalendarDays, isFechaDentroDeSemana, weekDays, ALLOWED_HOURS, todayISO } from '../utils/dateUtils'
 
-export default function Calendario({ formFecha, formCancha, reservas, onSelectDay }) {
-  const [currentMonth, setCurrentMonth] = useState(new Date())
+export default function Calendario({ formFecha, formCancha, reservas = [], onSelectDay, allowAllDates = false, horarios = [] }) {
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    if (formFecha) {
+      const [y, m, d] = formFecha.split('-').map(Number)
+      if (y && m) return new Date(y, m - 1, d || 1)
+    }
+    return new Date()
+  })
   const days = getCalendarDays(currentMonth)
+  const hoyStr = todayISO()
+  const totalSlots = Array.isArray(horarios) && horarios.length > 0 ? horarios.length : ALLOWED_HOURS.length
 
   const goPrevMonth = () => {
     setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
@@ -52,22 +60,22 @@ export default function Calendario({ formFecha, formCancha, reservas, onSelectDa
               if (!d) return <div key={index} className="p-2 sm:p-3 min-h-[38px] sm:min-h-[44px]"></div>
 
               const isSelected = formFecha === d.iso
-              const dentroSemana = isFechaDentroDeSemana(d.iso)
+              const isDateAllowed = allowAllDates ? (d.iso >= hoyStr) : isFechaDentroDeSemana(d.iso)
 
-              const reservasDia = reservas.filter(r => r.fecha === d.iso && r.cancha === formCancha)
+              const reservasDia = (reservas || []).filter(r => r.fecha === d.iso && String(r.cancha) === String(formCancha))
               const horasOcupadas = new Set(reservasDia.map(r => r.hora))
-              const isFullDay = horasOcupadas.size >= ALLOWED_HOURS.length
+              const isFullDay = horasOcupadas.size >= totalSlots
 
               return (
                 <button
                   key={d.iso}
                   type="button"
-                  disabled={!dentroSemana || isFullDay}
+                  disabled={!isDateAllowed || isFullDay}
                   onClick={() => onSelectDay(d.iso)}
                   className={`relative p-1.5 sm:p-2.5 min-h-[36px] sm:min-h-[42px] rounded-xl font-semibold text-xs sm:text-sm transition-all duration-200 active:scale-95 flex items-center justify-center
                     ${isSelected 
                       ? 'bg-blue-600 text-white shadow-sm shadow-blue-200 ring-2 ring-blue-400 font-black' 
-                      : !dentroSemana 
+                      : !isDateAllowed 
                         ? 'text-slate-300 cursor-not-allowed' 
                         : isFullDay 
                           ? 'bg-red-600 text-white cursor-not-allowed' 

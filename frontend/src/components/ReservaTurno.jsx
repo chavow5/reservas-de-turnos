@@ -10,7 +10,7 @@ import SelectorHorario from './SelectorHorario'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 export default function ReservaTurno() {
-  const { slug, nombreNegocio, telefono, direccion, montoSena, modoPrueba, canchasActivas = [], horarios = [], error: tenantError, loading: tenantLoading } = useTenant()
+  const { slug, nombreNegocio, telefono, direccion, montoSena, precioTotal, modoPrueba, canchasActivas = [], horarios = [], error: tenantError, loading: tenantLoading } = useTenant()
   const navigate = useNavigate()
 
   const [reservas, setReservas] = useState([])
@@ -272,7 +272,7 @@ export default function ReservaTurno() {
           
           <div className="mb-6 sm:mb-8 text-center sm:text-left">
             <h2 className="text-2xl sm:text-3xl font-black text-gray-800">
-              Reservar Cancha en {nombreNegocio}
+              Sistema de Reserva en {nombreNegocio}
             </h2>
             {(direccion || telefono) && (
               <p className="text-xs sm:text-sm text-slate-500 mt-1 flex flex-wrap items-center justify-center sm:justify-start gap-x-3 gap-y-1">
@@ -325,28 +325,43 @@ export default function ReservaTurno() {
             onSelectHour={selectHour} 
           />
 
-          {form.fecha && form.hora && (
-            <div className="bg-gray-100 border border-gray-200 rounded-2xl p-5 mb-8 text-gray-800 animate-fade-in">
-              <div className="flex items-start gap-3">
-                <div>
-                  <p className="font-medium mb-1">
-                    {modoPrueba ? 'Reserva de prueba (sin costo real).' : 'La seña se abona al momento de confirmar.'}
-                  </p>
-                  <p className="mb-3 text-gray-700">
-                    Monto de la seña: <span className="font-black text-lg bg-white px-2 py-0.5 rounded-lg border border-gray-300 ml-1">${montoSena}</span>
-                  </p>
-                  <p className="text-sm opacity-90 border-t border-gray-300 pt-3">
-                    Reserva para el día{' '}
-                    <span className="font-bold capitalize">
-                      {getDiaTexto(form.fecha)} {form.fecha.split('-').reverse().join('/')}
-                    </span>
-                    {' '}a las <span className="font-bold">{form.hora} hs</span>
-                    {' '}en <span className="font-bold">{canchasActivas.find(c => String(c.id) === String(form.cancha))?.nombre || `Cancha ${form.cancha}`}</span>.
-                  </p>
+          {form.fecha && form.hora && (() => {
+            const canchaSeleccionada = canchasActivas.find(c => String(c.id) === String(form.cancha))
+            const precioCancha = Number(canchaSeleccionada?.precio) || Number(precioTotal) || 100
+            const restante = Math.max(0, precioCancha - Number(montoSena))
+
+            return (
+              <div className="bg-gray-100 border border-gray-200 rounded-2xl p-4 sm:p-5 mb-8 text-gray-800 animate-fade-in">
+                <p className="font-medium mb-2.5 text-xs sm:text-sm text-gray-600">
+                  {modoPrueba ? 'Reserva de prueba (sin costo real).' : 'La seña se abona online para asegurar tu turno.'}
+                </p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+                  <div className="bg-white p-2.5 rounded-xl border border-gray-200">
+                    <span className="block text-[10px] sm:text-xs text-gray-500 font-bold uppercase">Cancha Completa</span>
+                    <span className="font-black text-base sm:text-lg text-slate-800">${precioCancha}</span>
+                  </div>
+                  <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
+                    <span className="block text-[10px] sm:text-xs text-blue-700 font-bold uppercase">Seña a Pagar</span>
+                    <span className="font-black text-base sm:text-lg text-blue-800">${montoSena}</span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-xl border border-gray-200 col-span-2 sm:col-span-1">
+                    <span className="block text-[10px] sm:text-xs text-gray-500 font-bold uppercase">Resta en Cancha</span>
+                    <span className="font-black text-base sm:text-lg text-emerald-700">${restante}</span>
+                  </div>
                 </div>
+
+                <p className="text-xs sm:text-sm opacity-90 border-t border-gray-300 pt-2.5">
+                  Reserva para el día{' '}
+                  <span className="font-bold capitalize">
+                    {getDiaTexto(form.fecha)} {form.fecha.split('-').reverse().join('/')}
+                  </span>
+                  {' '}a las <span className="font-bold">{form.hora} hs</span>
+                  {' '}en <span className="font-bold">{canchaSeleccionada?.nombre || `Cancha ${form.cancha}`}</span>.
+                </p>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           <button
             type="submit"

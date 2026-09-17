@@ -1,6 +1,6 @@
 import { ALLOWED_HOURS, isHoraInvalida } from '../utils/dateUtils'
 
-export default function SelectorHorario({ formFecha, formCancha, formHora, reservas, horarios, onSelectHour }) {
+export default function SelectorHorario({ formFecha, formCancha, formHora, reservas, horarios, onSelectHour, allowPastHours = false }) {
   const activeHours = Array.isArray(horarios) && horarios.length > 0 ? horarios : ALLOWED_HOURS
   const primerHorario = activeHours[0] || '15:00'
   const ultimoHorario = activeHours[activeHours.length - 1] || '02:00'
@@ -13,8 +13,8 @@ export default function SelectorHorario({ formFecha, formCancha, formHora, reser
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3 mb-2">
           {activeHours.map(h => {
             const isSelected = formHora === h
-            const horaOcupada = reservas.some(r => r.fecha === formFecha && r.hora === h && r.cancha === formCancha)
-            const horaInvalida = isHoraInvalida(formFecha, h)
+            const horaOcupada = (reservas || []).some(r => r.fecha === formFecha && r.hora === h && String(r.cancha) === String(formCancha))
+            const horaInvalida = allowPastHours ? false : isHoraInvalida(formFecha, h)
 
             const disabled = horaOcupada || horaInvalida
 
