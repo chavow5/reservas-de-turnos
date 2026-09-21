@@ -4,12 +4,13 @@ export default function SelectorCancha({ canchas = [], selectedCancha, onSelect 
       if (typeof c === 'string' || typeof c === 'number') {
         const str = String(c)
         const nombre = str.toLowerCase().startsWith('cancha') ? str : `Cancha ${str}`
-        return { id: str, nombre, activa: true }
+        return { id: str, nombre, activa: true, precio: null }
       }
       return {
         id: String(c?.id || c?.numero || '1'),
         nombre: c?.nombre || `Cancha ${c?.id || '1'}`,
-        activa: c?.activa !== false && c?.disponible !== false
+        activa: c?.activa !== false && c?.disponible !== false,
+        precio: c?.precio !== undefined && c?.precio !== null && !isNaN(Number(c.precio)) ? Number(c.precio) : null
       }
     })
     .filter(c => c.activa)
@@ -33,13 +34,22 @@ export default function SelectorCancha({ canchas = [], selectedCancha, onSelect 
               key={c.id}
               type="button"
               onClick={() => onSelect(c.id)}
-              className={`px-5 py-2.5 rounded-xl border font-semibold text-sm transition-all duration-200 active:scale-95 flex-1 sm:flex-none
+              className={`px-4 py-2.5 rounded-xl border font-semibold text-sm transition-all duration-200 active:scale-95 flex-1 sm:flex-none flex items-center justify-between sm:justify-start gap-2.5
                 ${selected 
                   ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-200' 
                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'}
               `}
             >
-              {c.nombre}
+              <span>{c.nombre}</span>
+              {c.precio && (
+                <span className={`text-xs px-2 py-0.5 rounded-lg font-bold ${
+                  selected 
+                    ? 'bg-blue-700/80 text-white' 
+                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                }`}>
+                  ${c.precio.toLocaleString('es-AR')}
+                </span>
+              )}
             </button>
           )
         })}

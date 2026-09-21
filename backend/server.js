@@ -1068,34 +1068,92 @@ app.put(['/api/admin/canchas/:canchaId/disponibilidad', '/admin/canchas/:canchaI
   }
 })
 
-// POST — Agregar nueva cancha
-app.post(['/api/admin/canchas', '/admin/canchas'], verifyAuth, requireAdmin, async (req, res) => {
-  const { nombre, password, precio } = req.body
-
-  if (!password) {
-    return res.status(400).json({ error: 'La contraseña de administrador es requerida para agregar canchas.' })
-  }
+// PUT — Editar nombre y/o precio de una cancha
+app.put(['/api/admin/canchas/:canchaId', '/admin/canchas/:canchaId'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
+  const { canchaId } = req.params
+  const { nombre, precio } = req.body
 
   if (!nombre || !nombre.trim()) {
     return res.status(400).json({ error: 'El nombre de la cancha es obligatorio.' })
   }
 
   try {
-    let passwordValida = false
+    const extras = getBusinessExtras()
+    const canchasActuales = extras.canchas || []
+    const nombreLimpio = nombre.trim()
+
+    let encontrada = false
+    const canchasActualizadas = canchasActuales.map(c => {
+      if (String(c.id) === String(canchaId)) {
+        encontrada = true
+        return {
+          ...c,
+          nombre: nombreLimpio,
+          ...(precio !== undefined && !isNaN(Number(precio)) && Number(precio) > 0 ? { precio: Number(precio) } : {})
+        }
+      }
+      return c
+    })
+
+    if (!encontrada) {
+      return res.status(404).json({ error: 'Cancha no encontrada' })
+    }
+
+    saveBusinessExtras({ canchas: canchasActualizadas })
+
+    try {
+      let { data: neg } = await supabase.from('negocios').select('id').limit(1).maybeSingle()
+      if (neg?.id) {
+        await supabase.from('negocios').update({ canchas: canchasActualizadas }).eq('id', neg.id)
+      }
+    } catch (errSup) {
+      console.warn('Advertencia actualizando canchas en Supabase:', errSup.message)
+    }
+
+    invalidateConfigCache()
+
+    res.json({
+      ok: true,
+      mensaje: 'Cancha actualizada exitosamente',
+      canchas: canchasActualizadas
+    })
+  } catch (err) {
+    console.error('Error al editar cancha:', err)
+    res.status(500).json({ error: 'Error del servidor al editar la cancha' })
+  }
+})
+
+// POST — Agregar nueva cancha
+app.post(['/api/admin/canchas', '/admin/canchas'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
+  const { nombre, password, precio } = req.body
+
+  if (!nombre || !nombre.trim()) {
+    return res.status(400).json({ error: 'El nombre de la cancha es obligatorio.' })
+  }
+
+  try {
+    let passwordValida = req.rol === 'admin'
     const ADMIN_PASSWORD_GLOBAL = process.env.ADMIN_PASSWORD || 'admin123'
 
-    if (password === ADMIN_PASSWORD_GLOBAL) {
-      passwordValida = true
-    } else if (req.user?.usuario_id) {
-      const { data: usuario, error: uErr } = await supabase
-        .from('usuarios')
-        .select('password, rol')
-        .eq('id', req.user.usuario_id)
-        .single()
-
-      if (!uErr && usuario && usuario.password === password) {
+    if (!passwordValida && password) {
+      if (password === ADMIN_PASSWORD_GLOBAL) {
         passwordValida = true
+      } else if (req.user?.usuario_id) {
+        const { data: usuario, error: uErr } = await supabase
+          .from('usuarios')
+          .select('password, rol')
+          .eq('id', req.user.usuario_id)
+          .single()
+
+        if (!uErr && usuario && (usuario.password === password || usuario.rol === 'admin')) {
+          passwordValida = true
+        }
       }
+    }
+
+    // Si no es admin y no mandó password
+    if (!passwordValida && !password) {
+      return res.status(403).json({ error: 'Se requiere rol o contraseña de administrador para agregar canchas.' })
     }
 
     if (!passwordValida) {
@@ -1151,34 +1209,32 @@ app.post(['/api/admin/canchas', '/admin/canchas'], verifyAuth, requireAdmin, asy
 })
 
 // DELETE — Eliminar cancha
-app.delete(['/api/admin/canchas/:canchaId', '/admin/canchas/:canchaId'], verifyAuth, requireAdmin, async (req, res) => {
+app.delete(['/api/admin/canchas/:canchaId', '/admin/canchas/:canchaId'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   const { canchaId } = req.params
-  const { password } = req.body
-
-  if (!password) {
-    return res.status(400).json({ error: 'La contraseña de administrador es requerida para eliminar una cancha.' })
-  }
+  const { password } = req.body || {}
 
   try {
-    let passwordValida = false
+    let passwordValida = req.rol === 'admin'
     const ADMIN_PASSWORD_GLOBAL = process.env.ADMIN_PASSWORD || 'admin123'
 
-    if (password === ADMIN_PASSWORD_GLOBAL) {
-      passwordValida = true
-    } else if (req.user?.usuario_id) {
-      const { data: usuario, error: uErr } = await supabase
-        .from('usuarios')
-        .select('password')
-        .eq('id', req.user.usuario_id)
-        .single()
-
-      if (!uErr && usuario && usuario.password === password) {
+    if (!passwordValida && password) {
+      if (password === ADMIN_PASSWORD_GLOBAL) {
         passwordValida = true
+      } else if (req.user?.usuario_id) {
+        const { data: usuario, error: uErr } = await supabase
+          .from('usuarios')
+          .select('password, rol')
+          .eq('id', req.user.usuario_id)
+          .single()
+
+        if (!uErr && usuario && (usuario.password === password || usuario.rol === 'admin')) {
+          passwordValida = true
+        }
       }
     }
 
     if (!passwordValida) {
-      return res.status(403).json({ error: 'Contraseña de administrador incorrecta.' })
+      return res.status(403).json({ error: 'Se requiere rol o contraseña de administrador para eliminar una cancha.' })
     }
 
     const extras = getBusinessExtras()

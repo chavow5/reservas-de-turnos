@@ -256,6 +256,11 @@ export default function Dashboard() {
   const [canchaError, setCanchaError] = useState('')
   const [guardandoCancha, setGuardandoCancha] = useState(false)
 
+  const [modalEditarCancha, setModalEditarCancha] = useState(null)
+  const [canchaEditandoForm, setCanchaEditandoForm] = useState({ nombre: '', precio: '' })
+  const [canchaEditandoError, setCanchaEditandoError] = useState('')
+  const [guardandoEdicionCancha, setGuardandoEdicionCancha] = useState(false)
+
   const [modalEliminarCancha, setModalEliminarCancha] = useState(null)
   const [eliminarPassword, setEliminarPassword] = useState('')
   const [eliminandoCancha, setEliminandoCancha] = useState(false)
@@ -427,7 +432,7 @@ export default function Dashboard() {
     }
   }
 
-  // Agregar nueva cancha (Solo Admin con validación de clave)
+  // Agregar nueva cancha
   const handleAgregarCancha = async (e) => {
     e.preventDefault()
     setCanchaError('')
@@ -435,7 +440,7 @@ export default function Dashboard() {
       setCanchaError('Ingresá el nombre de la cancha.')
       return
     }
-    if (!nuevaCanchaForm.password) {
+    if (!isAdmin && !nuevaCanchaForm.password) {
       setCanchaError('Ingresá la contraseña del administrador.')
       return
     }
@@ -468,12 +473,48 @@ export default function Dashboard() {
     }
   }
 
-  // Eliminar cancha (Solo Admin con validación de clave)
+  // Editar cancha (Nombre y/o Precio)
+  const handleEditarCancha = async (e) => {
+    e.preventDefault()
+    if (!modalEditarCancha) return
+    setCanchaEditandoError('')
+    if (!canchaEditandoForm.nombre.trim()) {
+      setCanchaEditandoError('Ingresá el nombre de la cancha.')
+      return
+    }
+    setGuardandoEdicionCancha(true)
+    try {
+      const res = await fetch(`${API_URL}/api/admin/canchas/${modalEditarCancha.id}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          nombre: canchaEditandoForm.nombre.trim(),
+          precio: canchaEditandoForm.precio ? Number(canchaEditandoForm.precio) : (Number(config.precio_total) || 100)
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setCanchaEditandoError(data.error || 'Error al editar la cancha')
+        return
+      }
+      setCanchas(data.canchas || [])
+      if (refreshTenant) refreshTenant()
+      setModalEditarCancha(null)
+      alert(`¡${data.mensaje || 'Cancha actualizada exitosamente'}!`)
+    } catch (err) {
+      console.error('Error al editar cancha:', err)
+      setCanchaEditandoError('Error de conexión al editar la cancha.')
+    } finally {
+      setGuardandoEdicionCancha(false)
+    }
+  }
+
+  // Eliminar cancha
   const handleEliminarCancha = async (e) => {
     e.preventDefault()
     if (!modalEliminarCancha) return
     setEliminarError('')
-    if (!eliminarPassword) {
+    if (!isAdmin && !eliminarPassword) {
       setEliminarError('Ingresá la contraseña del administrador.')
       return
     }
@@ -1940,36 +1981,33 @@ export default function Dashboard() {
                   <div className="bg-blue-50 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-xl border border-blue-200">
                     Total: {canchas.length}
                   </div>
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCanchaError('')
-                        setNuevaCanchaForm({
-                          nombre: `Cancha ${canchas.length + 1}`,
-                          password: '',
-                          precio: config.precio_total || tenantPrecioTotal || ''
-                        })
-                        setModalNuevaCancha(true)
-                      }}
-                      className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-sm transition-all cursor-pointer"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" />
-                      </svg>
-                      + Agregar Cancha
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCanchaError('')
+                      setNuevaCanchaForm({
+                        nombre: `Cancha ${canchas.length + 1}`,
+                        password: '',
+                        precio: config.precio_total || tenantPrecioTotal || ''
+                      })
+                      setModalNuevaCancha(true)
+                    }}
+                    className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-sm transition-all cursor-pointer"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" />
+                    </svg>
+                    + Agregar Cancha
+                  </button>
                 </div>
               </div>
 
-              {/* AVISO DE ROLES Y PERMISOS */}
+              {/* AVISO DE GESTIÓN */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl sm:rounded-2xl p-3 sm:p-4 mb-4 text-xs text-slate-600 flex items-start gap-2">
                 <div>
                   <p className="font-bold text-slate-700 mb-0.5">Gestión Operativa de Canchas</p>
                   <p>
-                    Tanto colaboradores como administradores pueden <strong>activar o pausar</strong> la disponibilidad de cada cancha en cualquier momento.
-                    {isAdmin ? ' Como administrador, podés agregar más canchas autorizando la operación con tu contraseña de administrador.' : ' Solo el administrador puede agregar nuevas canchas.'}
+                    Podés agregar nuevas canchas, editar su nombre y precio individual con el botón ✏️, o pausar y habilitar su disponibilidad para reservas online.
                   </p>
                 </div>
               </div>
@@ -2007,7 +2045,7 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-1.5 mt-0.5">
                                   <span className="text-[9px] sm:text-xs text-slate-400 font-mono">ID: {c.id}</span>
                                   <span className="text-[10px] sm:text-xs font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                                    ${c.precio || config.precio_total || tenantPrecioTotal || 100} completa
+                                    ${Number(c.precio || config.precio_total || tenantPrecioTotal || 100).toLocaleString('es-AR')} completa
                                   </span>
                                 </div>
                               </div>
@@ -2022,7 +2060,25 @@ export default function Dashboard() {
                                 {isActiva ? 'Disponible' : 'Pausada'}
                               </span>
 
-                              {isAdmin && canchas.length > 1 && (
+                              <button
+                                type="button"
+                                title="Editar nombre y precio"
+                                onClick={() => {
+                                  setCanchaEditandoError('')
+                                  setCanchaEditandoForm({
+                                    nombre: c.nombre,
+                                    precio: c.precio || config.precio_total || tenantPrecioTotal || ''
+                                  })
+                                  setModalEditarCancha(c)
+                                }}
+                                className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                              </button>
+
+                              {canchas.length > 1 && (
                                 <button
                                   type="button"
                                   title="Eliminar cancha"
@@ -2074,7 +2130,92 @@ export default function Dashboard() {
 
             </div>
 
-            {/* MODAL: AGREGAR NUEVA CANCHA (SOLO ADMIN CON CONTRASEÑA) */}
+            {/* MODAL: EDITAR CANCHA (NOMBRE Y PRECIO) */}
+            {modalEditarCancha && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+                <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                      <span className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-black">
+                        ✏️
+                      </span>
+                      Editar {modalEditarCancha.nombre}
+                    </h3>
+                    <button
+                      onClick={() => setModalEditarCancha(null)}
+                      className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 rounded-lg cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-slate-500 mb-4">
+                    Modificá el nombre y el precio específico de esta cancha.
+                  </p>
+
+                  {canchaEditandoError && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl mb-4">
+                      {canchaEditandoError}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleEditarCancha} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                        Nombre de la Cancha
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        value={canchaEditandoForm.nombre}
+                        onChange={e => setCanchaEditandoForm({ ...canchaEditandoForm, nombre: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                        Precio de la Cancha Completa ($ ARS)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold text-xs sm:text-sm">$</span>
+                        <input
+                          type="number"
+                          min="1"
+                          required
+                          className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                          value={canchaEditandoForm.precio}
+                          onChange={e => setCanchaEditandoForm({ ...canchaEditandoForm, precio: e.target.value })}
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Este precio se cobrará cuando los clientes reserven esta cancha en particular.
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        type="button"
+                        disabled={guardandoEdicionCancha}
+                        onClick={() => setModalEditarCancha(null)}
+                        className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={guardandoEdicionCancha}
+                        className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        {guardandoEdicionCancha ? 'Guardando...' : 'Guardar Cambios'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL: AGREGAR NUEVA CANCHA */}
             {modalNuevaCancha && (
               <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
                 <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
@@ -2094,7 +2235,7 @@ export default function Dashboard() {
                   </div>
 
                   <p className="text-xs text-slate-500 mb-4">
-                    Solo el administrador puede incorporar canchas al complejo ingresando su contraseña de acceso.
+                    Ingresá el nombre y precio para sumar una nueva cancha a tu complejo.
                   </p>
 
                   {canchaError && (
@@ -2136,21 +2277,23 @@ export default function Dashboard() {
                       </p>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                        Contraseña de Administrador
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                        value={nuevaCanchaForm.password}
-                        onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, password: e.target.value })}
-                      />
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        Requerida por seguridad para autorizar la creación.
-                      </p>
-                    </div>
+                    {!isAdmin && (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                          Contraseña de Administrador
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                          value={nuevaCanchaForm.password}
+                          onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, password: e.target.value })}
+                        />
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Requerida para autorizar la creación de la cancha.
+                        </p>
+                      </div>
+                    )}
 
                     <div className="flex gap-2 pt-2">
                       <button
@@ -2174,7 +2317,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* MODAL: ELIMINAR CANCHA (SOLO ADMIN CON CONTRASEÑA) */}
+            {/* MODAL: ELIMINAR CANCHA */}
             {modalEliminarCancha && (
               <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
                 <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
@@ -2194,7 +2337,7 @@ export default function Dashboard() {
                   </div>
 
                   <p className="text-xs text-slate-500 mb-4">
-                    ¿Estás seguro de que deseás eliminar esta cancha? Para confirmar esta acción ingresá tu contraseña de administrador.
+                    ¿Estás seguro de que deseás eliminar esta cancha?
                   </p>
 
                   {eliminarError && (
@@ -2204,18 +2347,20 @@ export default function Dashboard() {
                   )}
 
                   <form onSubmit={handleEliminarCancha} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                        Contraseña de Administrador
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                        value={eliminarPassword}
-                        onChange={e => setEliminarPassword(e.target.value)}
-                      />
-                    </div>
+                    {!isAdmin && (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                          Contraseña de Administrador
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                          value={eliminarPassword}
+                          onChange={e => setEliminarPassword(e.target.value)}
+                        />
+                      </div>
+                    )}
 
                     <div className="flex gap-2 pt-2">
                       <button

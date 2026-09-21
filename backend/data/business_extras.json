@@ -9,6 +9,11 @@
       "id": "2",
       "nombre": "Cancha 2",
       "activa": true
+    },
+    {
+      "id": "3",
+      "nombre": "Cancha 3",
+      "activa": true
     }
   ],
   "horarios": [
