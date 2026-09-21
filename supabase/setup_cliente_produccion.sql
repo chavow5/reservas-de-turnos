@@ -74,15 +74,9 @@ CREATE POLICY "Permitir lectura pública de config negocio" ON public.negocios
 -- Backend (service_role) tiene acceso total automático (bypass RLS).
 
 -- 6. DATOS SEMILLA INICIALES (Configuración por defecto)
-INSERT INTO public.negocios (id, nombre, telefono, direccion, monto_sena, precio_total)
-VALUES (
-  '22222222-2222-2222-2222-222222222222',
-  'Mi Complejo Deportivo',
-  '3804201334',
-  'Av. San Martín 1234',
-  100,
-  100
-) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.negocios (nombre, telefono, direccion, monto_sena, precio_total)
+SELECT 'Mi Complejo Deportivo', '3804201334', 'Av. San Martín 1234', 100, 100
+WHERE NOT EXISTS (SELECT 1 FROM public.negocios);
 
 -- Usuario Administrador por defecto
 INSERT INTO public.usuarios (email, password, nombre, rol, activo)

@@ -38,7 +38,7 @@ app.use(cors({
 
 app.use(express.json())
 
-console.log('⚡ Servidor de Reservas Activo (Single-Tenant) ⚡')
+console.log('⚡ Servidor de Reservas Activo ⚡')
 
 // ============================
 // CLIENTES EXTERNOS
@@ -197,7 +197,7 @@ if (keepAliveTimer.unref) keepAliveTimer.unref()
 // ============================
 // HEALTH CHECK DE BASE DE DATOS
 // ============================
-app.get('/health/db', async (req, res) => {
+app.get(['/api/health/db', '/health/db'], async (req, res) => {
   const startTime = Date.now()
   const TIMEOUT_MS = 5000
 
@@ -234,7 +234,7 @@ app.get('/health/db', async (req, res) => {
   }
 })
 
-app.get('/health', async (req, res) => {
+app.get(['/api/health', '/health'], async (req, res) => {
   try {
     const { error } = await supabase.from('reservas').select('id').limit(1)
     if (error) return res.status(500).json({ status: 'error', db: error.message })
@@ -245,12 +245,30 @@ app.get('/health', async (req, res) => {
 })
 
 // ============================
+// CACHÉ EN MEMORIA PARA CONFIG
+// ============================
+let cachedConfig = null
+let cachedConfigExpiry = 0
+const CONFIG_CACHE_TTL_MS = 60 * 1000 // 60 segundos de caché
+
+export const invalidateConfigCache = () => {
+  cachedConfig = null
+  cachedConfigExpiry = 0
+}
+
+// ============================
 // ENDPOINTS PÚBLICOS DEL NEGOCIO
 // ============================
 
-// Obtener configuración pública del negocio
-app.get('/api/config', async (req, res) => {
+// Obtener configuración pública del negocio (Ultra rápido: < 5ms con caché)
+app.get(['/api/config', '/config'], async (req, res) => {
   try {
+    const now = Date.now()
+    if (cachedConfig && now < cachedConfigExpiry) {
+      res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=300')
+      return res.json(cachedConfig)
+    }
+
     let negocio = null
     const selectColsBasic = 'id, nombre, telefono, direccion, plan, activo, monto_sena, precio_total, mp_access_token'
     const selectColsWithExtras = `${selectColsBasic}, canchas, horarios`
@@ -292,13 +310,19 @@ app.get('/api/config', async (req, res) => {
       ? normalizarHorarios(negocio.horarios)
       : extras.horarios
 
-    res.json({
+    const responsePayload = {
       ...negocio,
       telefono: negocio.telefono || '3804201334',
       direccion: negocio.direccion || '',
       canchas: canchasFinales,
       horarios: horariosFinales
-    })
+    }
+
+    cachedConfig = responsePayload
+    cachedConfigExpiry = now + CONFIG_CACHE_TTL_MS
+
+    res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=300')
+    res.json(responsePayload)
   } catch (err) {
     console.error('Error obteniendo /api/config:', err)
     res.status(500).json({ error: 'Error del servidor al obtener configuración' })
@@ -306,7 +330,7 @@ app.get('/api/config', async (req, res) => {
 })
 
 // Obtener turnos ocupados públicos para el calendario
-app.get('/api/turnos-ocupados', async (req, res) => {
+app.get(['/api/turnos-ocupados', '/turnos-ocupados'], async (req, res) => {
   const { desde, hasta } = req.query
 
   try {
@@ -334,7 +358,7 @@ app.get('/api/turnos-ocupados', async (req, res) => {
 // ============================
 // MERCADO PAGO: CREATE PREFERENCE
 // ============================
-app.post('/create-preference', async (req, res) => {
+app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
   try {
     const { nombre, fecha, hora, cancha } = req.body
     const canchaFinal = cancha || '1'
@@ -465,7 +489,7 @@ const verifyMPSignature = (req) => {
   return expected === v1
 }
 
-app.post('/webhook', async (req, res) => {
+app.post(['/api/webhook', '/webhook'], async (req, res) => {
   try {
     console.log('📩 Webhook recibido:', req.body)
 
@@ -568,7 +592,7 @@ app.post('/webhook', async (req, res) => {
 // ============================
 // MERCADO PAGO: CONFIRMAR PAGO (FALLBACK FRONTEND)
 // ============================
-app.post('/api/confirmar-pago', async (req, res) => {
+app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
   try {
     const {
       payment_id,
@@ -680,7 +704,7 @@ app.post('/api/confirmar-pago', async (req, res) => {
 // ============================
 // AUTENTICACIÓN ADMIN / COLABORADOR
 // ============================
-app.post('/admin/login', async (req, res) => {
+app.post(['/api/admin/login', '/admin/login'], async (req, res) => {
   const { email, password } = req.body
   const ADMIN_PASSWORD_GLOBAL = process.env.ADMIN_PASSWORD || 'admin123'
 
@@ -767,7 +791,7 @@ app.post('/admin/login', async (req, res) => {
 // ============================
 
 // GET — Todas las reservas
-app.get('/admin/reservas', verifyAuth, async (req, res) => {
+app.get(['/api/admin/reservas', '/admin/reservas'], verifyAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('reservas')
@@ -816,7 +840,7 @@ app.get('/admin/reservas', verifyAuth, async (req, res) => {
 })
 
 // POST — Crear reserva manual
-app.post('/admin/reservas', verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
+app.post(['/api/admin/reservas', '/admin/reservas'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   const { nombre, fecha, hora, cancha, pagado, estado_pago, monto_pagado } = req.body
   const canchaFinal = cancha || '1'
   const finalEstadoPago = estado_pago || (pagado ? 'pagado' : 'sin_pago')
@@ -917,7 +941,7 @@ app.post('/admin/reservas', verifyAuth, requireColaboradorOrAdmin, async (req, r
 })
 
 // PUT — Actualizar reserva
-app.put('/admin/reservas/:id', verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
+app.put(['/api/admin/reservas/:id', '/admin/reservas/:id'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   const { id } = req.params
   const { nombre, fecha, hora, cancha, pagado, estado_pago, monto_pagado } = req.body
   const canchaFinal = cancha || '1'
@@ -966,7 +990,7 @@ app.put('/admin/reservas/:id', verifyAuth, requireColaboradorOrAdmin, async (req
 })
 
 // DELETE — Eliminar reserva
-app.delete('/admin/reservas/:id', verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
+app.delete(['/api/admin/reservas/:id', '/admin/reservas/:id'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   const { id } = req.params
 
   try {
@@ -987,7 +1011,7 @@ app.delete('/admin/reservas/:id', verifyAuth, requireColaboradorOrAdmin, async (
 // ============================
 // GESTIÓN DE CANCHAS
 // ============================
-app.get('/admin/canchas', verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
+app.get(['/api/admin/canchas', '/admin/canchas'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   try {
     const extras = getBusinessExtras()
     res.json(extras.canchas)
@@ -998,7 +1022,7 @@ app.get('/admin/canchas', verifyAuth, requireColaboradorOrAdmin, async (req, res
 })
 
 // Toggle disponibilidad de cancha
-app.put('/admin/canchas/:canchaId/disponibilidad', verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
+app.put(['/api/admin/canchas/:canchaId/disponibilidad', '/admin/canchas/:canchaId/disponibilidad'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   const { canchaId } = req.params
   const { activa, disponible } = req.body
 
@@ -1031,6 +1055,8 @@ app.put('/admin/canchas/:canchaId/disponibilidad', verifyAuth, requireColaborado
       console.warn('Advertencia actualizando canchas en Supabase:', errSup.message)
     }
 
+    invalidateConfigCache()
+
     res.json({
       ok: true,
       mensaje: `Cancha ${nuevoEstado ? 'activada' : 'pausada'} con éxito`,
@@ -1043,7 +1069,7 @@ app.put('/admin/canchas/:canchaId/disponibilidad', verifyAuth, requireColaborado
 })
 
 // POST — Agregar nueva cancha
-app.post('/admin/canchas', verifyAuth, requireAdmin, async (req, res) => {
+app.post(['/api/admin/canchas', '/admin/canchas'], verifyAuth, requireAdmin, async (req, res) => {
   const { nombre, password, precio } = req.body
 
   if (!password) {
@@ -1110,6 +1136,8 @@ app.post('/admin/canchas', verifyAuth, requireAdmin, async (req, res) => {
       console.warn('Advertencia actualizando canchas en Supabase:', errSup.message)
     }
 
+    invalidateConfigCache()
+
     res.json({
       ok: true,
       mensaje: 'Cancha creada exitosamente',
@@ -1123,7 +1151,7 @@ app.post('/admin/canchas', verifyAuth, requireAdmin, async (req, res) => {
 })
 
 // DELETE — Eliminar cancha
-app.delete('/admin/canchas/:canchaId', verifyAuth, requireAdmin, async (req, res) => {
+app.delete(['/api/admin/canchas/:canchaId', '/admin/canchas/:canchaId'], verifyAuth, requireAdmin, async (req, res) => {
   const { canchaId } = req.params
   const { password } = req.body
 
@@ -1171,6 +1199,8 @@ app.delete('/admin/canchas/:canchaId', verifyAuth, requireAdmin, async (req, res
       console.warn('Advertencia eliminando cancha en Supabase:', errSup.message)
     }
 
+    invalidateConfigCache()
+
     res.json({
       ok: true,
       mensaje: 'Cancha eliminada exitosamente',
@@ -1185,7 +1215,7 @@ app.delete('/admin/canchas/:canchaId', verifyAuth, requireAdmin, async (req, res
 // ============================
 // CONFIGURACIÓN DEL NEGOCIO (SOLO ADMIN)
 // ============================
-app.get('/admin/config', verifyAuth, requireAdmin, async (req, res) => {
+app.get(['/api/admin/config', '/admin/config'], verifyAuth, requireAdmin, async (req, res) => {
   try {
     let { data: negocio } = await supabase
       .from('negocios')
@@ -1226,7 +1256,7 @@ app.get('/admin/config', verifyAuth, requireAdmin, async (req, res) => {
   }
 })
 
-app.put('/admin/config', verifyAuth, requireAdmin, async (req, res) => {
+app.put(['/api/admin/config', '/admin/config'], verifyAuth, requireAdmin, async (req, res) => {
   const { nombre, monto_sena, precio_total, telefono, direccion, horarios, mp_access_token } = req.body
 
   try {
@@ -1273,6 +1303,8 @@ app.put('/admin/config', verifyAuth, requireAdmin, async (req, res) => {
       tiene_mp_token: !!(savedNegocio?.mp_access_token || updateData.mp_access_token)
     }
 
+    invalidateConfigCache()
+
     res.json({
       ok: true,
       mensaje: 'Configuración actualizada exitosamente',
@@ -1288,7 +1320,7 @@ app.put('/admin/config', verifyAuth, requireAdmin, async (req, res) => {
 // ============================
 // COLABORADORES (SOLO ADMIN)
 // ============================
-app.get('/admin/colaboradores', verifyAuth, requireAdmin, async (req, res) => {
+app.get(['/api/admin/colaboradores', '/admin/colaboradores'], verifyAuth, requireAdmin, async (req, res) => {
   try {
     const { data: usuarios, error } = await supabase
       .from('usuarios')
@@ -1302,7 +1334,7 @@ app.get('/admin/colaboradores', verifyAuth, requireAdmin, async (req, res) => {
   }
 })
 
-app.post('/admin/colaboradores', verifyAuth, requireAdmin, async (req, res) => {
+app.post(['/api/admin/colaboradores', '/admin/colaboradores'], verifyAuth, requireAdmin, async (req, res) => {
   const { nombre, email, password } = req.body
   if (!nombre || !email || !password) {
     return res.status(400).json({ error: 'Todos los campos son obligatorios' })
@@ -1334,7 +1366,7 @@ app.post('/admin/colaboradores', verifyAuth, requireAdmin, async (req, res) => {
   }
 })
 
-app.delete('/admin/colaboradores/:id', verifyAuth, requireAdmin, async (req, res) => {
+app.delete(['/api/admin/colaboradores/:id', '/admin/colaboradores/:id'], verifyAuth, requireAdmin, async (req, res) => {
   const { id } = req.params
 
   try {
@@ -1357,16 +1389,22 @@ app.delete('/admin/colaboradores/:id', verifyAuth, requireAdmin, async (req, res
 // ============================
 // START SERVER
 // ============================
+let server = null
 const PORT = process.env.PORT || 3000
-const server = app.listen(PORT, () =>
-  console.log(`🚀 Backend activo en puerto ${PORT}`)
-).on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`\n❌ Error: El puerto ${PORT} ya está siendo utilizado por otra instancia de Node.`)
-    console.error(`💡 Para liberarlo en PowerShell ejecuta:\n   Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force\n`)
-  } else {
-    console.error('❌ Error al iniciar servidor:', err)
-  }
-})
 
+if (!process.env.VERCEL) {
+  server = app.listen(PORT, () =>
+    console.log(`🚀 Backend activo en puerto ${PORT}`)
+  ).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n❌ Error: El puerto ${PORT} ya está siendo utilizado por otra instancia de Node.`)
+      console.error(`💡 Para liberarlo en PowerShell ejecuta:\n   Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force\n`)
+    } else {
+      console.error('❌ Error al iniciar servidor:', err)
+    }
+  })
+}
+
+export default app
 export { app, server }
+

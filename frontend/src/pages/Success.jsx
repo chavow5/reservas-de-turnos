@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useTenant } from "../context/TenantContext"
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+const API_URL = import.meta.env.VITE_API_URL || ''
 
 export default function Success() {
   const [searchParams] = useSearchParams()

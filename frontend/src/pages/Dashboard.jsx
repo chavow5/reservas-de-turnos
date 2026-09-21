@@ -7,9 +7,8 @@ import { ALL_POSSIBLE_HOURS, DEFAULT_HOURS, todayISO } from '../utils/dateUtils'
 import SelectorCancha from '../components/SelectorCancha'
 import Calendario from '../components/Calendario'
 import SelectorHorario from '../components/SelectorHorario'
-import * as XLSX from 'xlsx'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+const API_URL = import.meta.env.VITE_API_URL || ''
 
 // Selector moderno flotante para el estado de pago (evita el fondo amarillo y opciones sin estilo del select nativo)
 function EstadoPagoBadge({ value, onChange, isSmall = false, isDark = false }) {
@@ -331,7 +330,7 @@ export default function Dashboard() {
   const fetchReservas = useCallback(async () => {
     try {
       setLoading(true)
-      const res = await fetch(`${API_URL}/admin/reservas`, {
+      const res = await fetch(`${API_URL}/api/admin/reservas`, {
         headers: getAuthHeaders()
       })
 
@@ -359,7 +358,7 @@ export default function Dashboard() {
   const fetchConfig = useCallback(async () => {
     if (!isAdmin) return
     try {
-      const res = await fetch(`${API_URL}/admin/config`, {
+      const res = await fetch(`${API_URL}/api/admin/config`, {
         headers: getAuthHeaders()
       })
       if (res.ok) {
@@ -387,7 +386,7 @@ export default function Dashboard() {
   // Cargar Canchas y su Disponibilidad (Admin y Colaborador)
   const fetchCanchas = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/admin/canchas`, {
+      const res = await fetch(`${API_URL}/api/admin/canchas`, {
         headers: getAuthHeaders()
       })
       if (res.ok) {
@@ -406,7 +405,7 @@ export default function Dashboard() {
     setTogglingCanchaId(canchaId)
     try {
       const nuevoEstado = !estadoActual
-      const res = await fetch(`${API_URL}/admin/canchas/${canchaId}/disponibilidad`, {
+      const res = await fetch(`${API_URL}/api/admin/canchas/${canchaId}/disponibilidad`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ activa: nuevoEstado })
@@ -442,7 +441,7 @@ export default function Dashboard() {
     }
     setGuardandoCancha(true)
     try {
-      const res = await fetch(`${API_URL}/admin/canchas`, {
+      const res = await fetch(`${API_URL}/api/admin/canchas`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -480,7 +479,7 @@ export default function Dashboard() {
     }
     setEliminandoCancha(true)
     try {
-      const res = await fetch(`${API_URL}/admin/canchas/${modalEliminarCancha.id}`, {
+      const res = await fetch(`${API_URL}/api/admin/canchas/${modalEliminarCancha.id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -509,7 +508,7 @@ export default function Dashboard() {
   const fetchColaboradores = useCallback(async () => {
     if (!isAdmin) return
     try {
-      const res = await fetch(`${API_URL}/admin/colaboradores`, {
+      const res = await fetch(`${API_URL}/api/admin/colaboradores`, {
         headers: getAuthHeaders()
       })
       if (res.ok) {
@@ -551,7 +550,7 @@ export default function Dashboard() {
 
   // Cambiar estado de pago rápido desde la tabla o tarjetas
   const cambiarEstadoPago = async (id, nuevoEstado) => {
-    const res = await fetch(`${API_URL}/admin/reservas/${id}`, {
+    const res = await fetch(`${API_URL}/api/admin/reservas/${id}`, {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify({
@@ -574,7 +573,7 @@ export default function Dashboard() {
   const eliminarReserva = async (id) => {
     if (!confirm('¿Eliminar esta reserva definitivamente?')) return
 
-    const res = await fetch(`${API_URL}/admin/reservas/${id}`, {
+    const res = await fetch(`${API_URL}/api/admin/reservas/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
     })
@@ -589,7 +588,7 @@ export default function Dashboard() {
 
   // Guardar edición completa
   const guardarEdicion = async () => {
-    const res = await fetch(`${API_URL}/admin/reservas/${editando.id}`, {
+    const res = await fetch(`${API_URL}/api/admin/reservas/${editando.id}`, {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify({
@@ -641,7 +640,7 @@ export default function Dashboard() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/admin/reservas`, {
+      const res = await fetch(`${API_URL}/api/admin/reservas`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(payload)
@@ -685,7 +684,7 @@ export default function Dashboard() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/admin/config`, {
+      const res = await fetch(`${API_URL}/api/admin/config`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(config)
@@ -758,7 +757,7 @@ export default function Dashboard() {
     e.preventDefault()
     setColabMsg('')
 
-    const res = await fetch(`${API_URL}/admin/colaboradores`, {
+    const res = await fetch(`${API_URL}/api/admin/colaboradores`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(nuevoColab)
@@ -780,7 +779,7 @@ export default function Dashboard() {
   const eliminarColaborador = async (id) => {
     if (!confirm('¿Eliminar acceso a este colaborador?')) return
 
-    const res = await fetch(`${API_URL}/admin/colaboradores/${id}`, {
+    const res = await fetch(`${API_URL}/api/admin/colaboradores/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
     })
@@ -869,53 +868,65 @@ export default function Dashboard() {
     alert('Lista de turnos copiada para WhatsApp')
   }
 
-  // Exportar lista actual de turnos a archivo Excel (.xlsx)
-  const exportarExcel = () => {
+  // Exportar lista actual de turnos a archivo Excel (.xlsx) con carga dinámica on-demand
+  const [exportandoExcel, setExportandoExcel] = useState(false)
+
+  const exportarExcel = async () => {
     if (reservasFiltradas.length === 0) {
       return alert('No hay turnos para exportar con los filtros seleccionados.')
     }
 
-    const datos = reservasFiltradas.map(r => {
-      const canchaObj = canchas.find(c => String(c.id) === String(r.cancha))
-      const estadoTexto = r.estado_pago === 'pagado'
-        ? 'Pagado Total'
-        : r.estado_pago === 'señado'
-          ? 'Señado'
-          : 'Sin Pago'
+    try {
+      setExportandoExcel(true)
+      const XLSX = await import('xlsx')
 
-      const creadorTexto = r.creado_por || (r.payment_id && String(r.payment_id).startsWith('manual_') ? 'Admin (Manual)' : 'Cliente (Online)')
+      const datos = reservasFiltradas.map(r => {
+        const canchaObj = canchas.find(c => String(c.id) === String(r.cancha))
+        const estadoTexto = r.estado_pago === 'pagado'
+          ? 'Pagado Total'
+          : r.estado_pago === 'señado'
+            ? 'Señado'
+            : 'Sin Pago'
 
-      return {
-        'Jugador': r.nombre || 'Sin nombre',
-        'Cancha': canchaObj?.nombre || `Cancha ${r.cancha}`,
-        'Fecha': r.fecha || '',
-        'Hora': r.hora ? `${r.hora} hs` : '',
-        'Estado de Pago': estadoTexto,
-        'Monto Pagado ($)': Number(r.monto_pagado) || 0,
-        'Registrado Por': creadorTexto
-      }
-    })
+        const creadorTexto = r.creado_por || (r.payment_id && String(r.payment_id).startsWith('manual_') ? 'Admin (Manual)' : 'Cliente (Online)')
 
-    const worksheet = XLSX.utils.json_to_sheet(datos)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Reservas')
+        return {
+          'Jugador': r.nombre || 'Sin nombre',
+          'Cancha': canchaObj?.nombre || `Cancha ${r.cancha}`,
+          'Fecha': r.fecha || '',
+          'Hora': r.hora ? `${r.hora} hs` : '',
+          'Estado de Pago': estadoTexto,
+          'Monto Pagado ($)': Number(r.monto_pagado) || 0,
+          'Registrado Por': creadorTexto
+        }
+      })
 
-    // Ancho de columnas óptimo
-    worksheet['!cols'] = [
-      { wch: 26 }, // Jugador
-      { wch: 15 }, // Cancha
-      { wch: 15 }, // Fecha
-      { wch: 12 }, // Hora
-      { wch: 16 }, // Estado de Pago
-      { wch: 16 }, // Monto Pagado
-      { wch: 24 }  // Registrado Por
-    ]
+      const worksheet = XLSX.utils.json_to_sheet(datos)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Reservas')
 
-    const nombreComplejo = (config.nombre || nombreNegocio || 'Complejo').replace(/[^a-zA-Z0-9_-]/g, '_')
-    const filtroNombre = filterPeriodo || 'turnos'
-    const fileName = `Reservas_${nombreComplejo}_${filtroNombre}_${todayISO()}.xlsx`
+      // Ancho de columnas óptimo
+      worksheet['!cols'] = [
+        { wch: 26 }, // Jugador
+        { wch: 15 }, // Cancha
+        { wch: 15 }, // Fecha
+        { wch: 12 }, // Hora
+        { wch: 16 }, // Estado de Pago
+        { wch: 16 }, // Monto Pagado
+        { wch: 24 }  // Registrado Por
+      ]
 
-    XLSX.writeFile(workbook, fileName)
+      const nombreComplejo = (config.nombre || nombreNegocio || 'Complejo').replace(/[^a-zA-Z0-9_-]/g, '_')
+      const filtroNombre = filterPeriodo || 'turnos'
+      const fileName = `Reservas_${nombreComplejo}_${filtroNombre}_${todayISO()}.xlsx`
+
+      XLSX.writeFile(workbook, fileName)
+    } catch (err) {
+      console.error('Error exportando Excel:', err)
+      alert('Error al generar el archivo Excel. Probá nuevamente.')
+    } finally {
+      setExportandoExcel(false)
+    }
   }
 
   return (
@@ -1429,13 +1440,16 @@ export default function Dashboard() {
                 <div className="flex flex-wrap items-center gap-2 justify-end">
                   <button
                     onClick={exportarExcel}
-                    className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+                    disabled={exportandoExcel}
+                    className={`w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 ${
+                      exportandoExcel ? 'opacity-75 cursor-not-allowed' : ''
+                    }`}
                     title="Exportar los turnos visibles a archivo Excel (.xlsx)"
                   >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className={`w-3.5 h-3.5 ${exportandoExcel ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    Exportar a Excel
+                    {exportandoExcel ? 'Generando Excel...' : 'Exportar a Excel'}
                   </button>
                   <button
                     onClick={() => copiarWhatsApp(reservasSemana, 'Turnos de la SEMANA')}

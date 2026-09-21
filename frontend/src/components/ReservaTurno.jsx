@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback } from 'react'
-import axios from 'axios'
 import { Link, useNavigate } from 'react-router-dom'
 import { getDiaTexto, isFechaDentroDeSemana, isHoraInvalida } from '../utils/dateUtils'
 import { useTenant } from '../context/TenantContext'
@@ -7,7 +6,7 @@ import SelectorCancha from './SelectorCancha'
 import Calendario from './Calendario'
 import SelectorHorario from './SelectorHorario'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+const API_URL = import.meta.env.VITE_API_URL || ''
 
 export default function ReservaTurno() {
   const { nombreNegocio, telefono, direccion, montoSena, precioTotal, canchasActivas = [], horarios = [], error: tenantError, loading: tenantLoading } = useTenant()
@@ -23,7 +22,6 @@ export default function ReservaTurno() {
   const [loading, setLoading] = useState(false)
   const [texto, setTexto] = useState("Preparando pago...")
   const [dbError, setDbError] = useState(null)
-  const [dbChecking, setDbChecking] = useState(false)
 
   // Asegurar que si cambian las canchas activas, la cancha seleccionada sea válida
   useEffect(() => {
@@ -43,11 +41,11 @@ export default function ReservaTurno() {
         .toISOString()
         .split('T')[0]
 
-      const res = await axios.get(`${API_URL}/api/turnos-ocupados`, {
-        params: { desde: hoy, hasta: enSieteDias }
-      })
+      const res = await fetch(`${API_URL}/api/turnos-ocupados?desde=${hoy}&hasta=${enSieteDias}`)
+      if (!res.ok) throw new Error('Error al cargar disponibilidad')
+      const data = await res.json()
 
-      const normalized = (res.data || []).map(r => ({
+      const normalized = (data || []).map(r => ({
         ...r,
         cancha: r.cancha ?? '1'
       }))
@@ -89,25 +87,6 @@ export default function ReservaTurno() {
     setForm(prev => ({ ...prev, hora }))
   }
 
-  // ============================
-  // CHEQUEO DE BASE ACTIVA ANTES DE RESERVAR / PAGAR
-  // ============================
-  const verificarBaseActiva = async () => {
-    setDbChecking(true)
-    try {
-      const res = await axios.get(`${API_URL}/health/db`, { timeout: 6000 })
-      if (res.data && res.data.activa === true) {
-        return true
-      }
-      return false
-    } catch (err) {
-      console.warn('Base de datos no respondió o inactiva:', err.message)
-      return false
-    } finally {
-      setDbChecking(false)
-    }
-  }
-
   const handleSubmit = async (e) => {
     e.preventDefault()
     setDbError(null)
@@ -130,29 +109,28 @@ export default function ReservaTurno() {
 
     try {
       setLoading(true)
-      setTexto("Verificando estado del servidor...")
-
-      const estaActiva = await verificarBaseActiva()
-
-      if (!estaActiva) {
-        setLoading(false)
-        setDbError("No pudimos conectar con la base de datos (puede estar iniciándose). Por favor probá de nuevo en unos segundos.")
-        return
-      }
-
-      // Conexión con Mercado Pago directo
       setTexto("Conectando con Mercado Pago...")
 
-      const res = await axios.post(`${API_URL}/create-preference`, {
-        nombre: form.nombre,
-        cancha: form.cancha,
-        fecha: form.fecha,
-        hora: form.hora
+      const res = await fetch(`${API_URL}/api/create-preference`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: form.nombre,
+          cancha: form.cancha,
+          fecha: form.fecha,
+          hora: form.hora
+        })
       })
 
-      if (res.data && res.data.init_point) {
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'No se pudo generar el pago')
+      }
+
+      if (data && data.init_point) {
         setTexto("Abriendo Mercado Pago...")
-        window.location.href = res.data.init_point
+        window.location.href = data.init_point
         return
       } else {
         throw new Error('No se pudo obtener el punto de inicio de pago')
@@ -160,8 +138,7 @@ export default function ReservaTurno() {
 
     } catch (err) {
       console.error('Error al procesar reserva:', err)
-      const backendError = err.response?.data?.message || err.response?.data?.error || err.message
-      setDbError(`Error al procesar reserva: ${backendError}`)
+      setDbError(err.message || 'Error de conexión al procesar la reserva')
     } finally {
       setLoading(false)
     }
@@ -227,10 +204,10 @@ export default function ReservaTurno() {
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={dbChecking || loading}
+                  disabled={loading}
                   className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-rose-200 flex items-center gap-2"
                 >
-                  {dbChecking ? 'Reintentando conexión...' : 'Reintentar ahora'}
+                  {loading ? 'Reintentando...' : 'Reintentar ahora'}
                 </button>
               </div>
             </div>

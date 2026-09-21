@@ -135,6 +135,36 @@ test('9. Colaborador accede a reservas y canchas, pero tiene acceso denegado (40
   assert.equal(resColaboradores.status, 403)
 })
 
+test('10. Rutas con prefijo /api/admin (Vercel Serverless routing) responden correctamente', async () => {
+  const password = process.env.ADMIN_PASSWORD || 'admin123'
+  const resLogin = await fetch(`${API_URL}/api/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'admin@reservas.com', password })
+  })
+  assert.equal(resLogin.status, 200)
+  const loginData = await resLogin.json()
+  assert.ok(loginData.token)
+
+  const resReservas = await fetch(`${API_URL}/api/admin/reservas`, {
+    headers: { Authorization: `Bearer ${loginData.token}` }
+  })
+  assert.equal(resReservas.status, 200)
+
+  const resCanchas = await fetch(`${API_URL}/api/admin/canchas`, {
+    headers: { Authorization: `Bearer ${loginData.token}` }
+  })
+  assert.equal(resCanchas.status, 200)
+})
+
+test('11. GET /api/health y /api/health/db funcionan con prefijo /api', async () => {
+  const resHealth = await fetch(`${API_URL}/api/health`)
+  assert.ok(resHealth.status === 200 || resHealth.status === 500)
+
+  const resDb = await fetch(`${API_URL}/api/health/db`)
+  assert.ok(resDb.status === 200 || resDb.status === 503)
+})
+
 test.after(() => {
   if (server && server.close) {
     server.close()

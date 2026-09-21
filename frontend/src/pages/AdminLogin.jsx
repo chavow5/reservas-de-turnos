@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useTenant } from '../context/TenantContext'
 import { useAuth } from '../context/AuthContext'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+const API_URL = import.meta.env.VITE_API_URL || ''
 
 export default function AdminLogin() {
   const { nombreNegocio } = useTenant()
@@ -20,7 +20,7 @@ export default function AdminLogin() {
     setLoading(true)
 
     try {
-      const res = await fetch(`${API_URL}/admin/login`, {
+      const res = await fetch(`${API_URL}/api/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
