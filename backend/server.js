@@ -86,10 +86,14 @@ export const normalizarCanchas = (raw) => {
       if (typeof item === 'object' && item !== null) {
         const id = String(item.id || item.numero || index + 1).trim()
         const nombre = item.nombre ? String(item.nombre).trim() : (id.toLowerCase().startsWith('cancha') ? id : `Cancha ${id}`)
+        const precio = (item.precio !== undefined && item.precio !== null && !isNaN(Number(item.precio)) && Number(item.precio) > 0)
+          ? Number(item.precio)
+          : undefined
         return {
           id,
           nombre,
-          activa: item.activa !== false && item.disponible !== false
+          activa: item.activa !== false && item.disponible !== false,
+          ...(precio !== undefined ? { precio } : {})
         }
       }
       return { id: String(index + 1), nombre: `Cancha ${index + 1}`, activa: true }

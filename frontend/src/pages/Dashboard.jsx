@@ -461,6 +461,7 @@ export default function Dashboard() {
         return
       }
       setCanchas(data.canchas || [])
+      if (updateLocalConfig) updateLocalConfig({ canchas: data.canchas })
       if (refreshTenant) refreshTenant()
       setModalNuevaCancha(false)
       setNuevaCanchaForm({ nombre: '', password: '', precio: '' })
@@ -498,6 +499,7 @@ export default function Dashboard() {
         return
       }
       setCanchas(data.canchas || [])
+      if (updateLocalConfig) updateLocalConfig({ canchas: data.canchas })
       if (refreshTenant) refreshTenant()
       setModalEditarCancha(null)
       alert(`¡${data.mensaje || 'Cancha actualizada exitosamente'}!`)
@@ -533,6 +535,7 @@ export default function Dashboard() {
         return
       }
       setCanchas(data.canchas || [])
+      if (updateLocalConfig) updateLocalConfig({ canchas: data.canchas })
       if (refreshTenant) refreshTenant()
       setModalEliminarCancha(null)
       setEliminarPassword('')
