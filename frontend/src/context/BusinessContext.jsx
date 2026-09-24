@@ -4,58 +4,57 @@ const API_URL = import.meta.env.VITE_API_URL || ''
 
 const BusinessContext = createContext(null)
 
+const DEFAULT_BUSINESS_CONFIG = {
+  id: '1',
+  nombre: 'Cancha Fútbol',
+  telefono: '3804201334',
+  direccion: 'Av. San Martín 1234',
+  activo: true,
+  monto_sena: 100,
+  precio_total: 100,
+  canchas: [
+    { id: '1', nombre: 'Cancha 1', activa: true },
+    { id: '2', nombre: 'Cancha 2', activa: true }
+  ],
+  horarios: [
+    '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00'
+  ]
+}
+
 export function BusinessProvider({ children }) {
   const [negocio, setNegocio] = useState(() => {
     try {
       const cached = localStorage.getItem('cached_business_config')
-      return cached ? JSON.parse(cached) : null
-    } catch (e) {
-      return null
-    }
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (parsed && parsed.nombre) return parsed
+      }
+    } catch (e) {}
+    return DEFAULT_BUSINESS_CONFIG
   })
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
   const fetchConfig = useCallback(async () => {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 4000)
+
     try {
-      setLoading(true)
       setError(null)
 
-      const res = await fetch(`${API_URL}/api/config`)
-      if (!res.ok) {
-        throw new Error('Error al cargar la configuración del negocio.')
-      }
+      const res = await fetch(`${API_URL}/api/config`, { signal: controller.signal })
+      clearTimeout(timeoutId)
 
-      const data = await res.json()
-      setNegocio(data)
-      try {
-        localStorage.setItem('cached_business_config', JSON.stringify(data))
-      } catch (e) {}
-    } catch (err) {
-      console.warn('Aviso BusinessContext:', err.message)
-      setNegocio(prev => {
-        if (prev && prev.nombre) return prev
+      if (res.ok) {
+        const data = await res.json()
+        setNegocio(data)
         try {
-          const cached = localStorage.getItem('cached_business_config')
-          if (cached) return JSON.parse(cached)
+          localStorage.setItem('cached_business_config', JSON.stringify(data))
         } catch (e) {}
-        return {
-          id: '1',
-          nombre: 'Cancha Fútbol',
-          telefono: '3804201334',
-          direccion: 'Av. San Martín 1234',
-          activo: true,
-          monto_sena: 100,
-          precio_total: 100,
-          canchas: [
-            { id: '1', nombre: 'Cancha 1', activa: true },
-            { id: '2', nombre: 'Cancha 2', activa: true }
-          ],
-          horarios: [
-            '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00'
-          ]
-        }
-      })
+      }
+    } catch (err) {
+      clearTimeout(timeoutId)
+      console.warn('Aviso BusinessContext:', err.message)
     } finally {
       setLoading(false)
     }

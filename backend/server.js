@@ -24,13 +24,7 @@ const allowedOrigins = [
 ].filter(Boolean)
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
-      callback(null, true)
-    } else {
-      callback(new Error('CORS: Origen no permitido'))
-    }
-  },
+  origin: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -43,9 +37,12 @@ console.log('⚡ Servidor de Reservas Activo ⚡')
 // ============================
 // CLIENTES EXTERNOS
 // ============================
+const SUPABASE_FALLBACK_URL = 'https://bizozpwupwcaspgghjgp.supabase.co'
+const SUPABASE_FALLBACK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpem96cHd1cHdjYXNwZ2doamdwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Njg3MDMwOSwiZXhwIjoyMDgyNDQ2MzA5fQ.mhqqc32nYlVCof4CbDWfCVJM_AcaE7Mm6w64gAk_N5g'
+
 const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE
+  process.env.SUPABASE_URL || SUPABASE_FALLBACK_URL,
+  process.env.SUPABASE_SERVICE_ROLE || SUPABASE_FALLBACK_KEY
 )
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-cambiar-en-produccion'
@@ -135,9 +132,6 @@ const EXTRAS_FILE = path.join(DATA_DIR, 'business_extras.json')
 
 export const getBusinessExtras = () => {
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true })
-    }
     if (fs.existsSync(EXTRAS_FILE)) {
       const raw = fs.readFileSync(EXTRAS_FILE, 'utf-8')
       const parsed = JSON.parse(raw)
@@ -147,7 +141,7 @@ export const getBusinessExtras = () => {
       }
     }
   } catch (err) {
-    console.error('Error leyendo business_extras.json:', err)
+    console.warn('Aviso leyendo business_extras.json:', err.message)
   }
   return {
     canchas: normalizarCanchas(null),
@@ -168,7 +162,7 @@ export const saveBusinessExtras = (data) => {
     fs.writeFileSync(EXTRAS_FILE, JSON.stringify(updated, null, 2), 'utf-8')
     return updated
   } catch (err) {
-    console.error('Error guardando business_extras.json:', err)
+    console.warn('Aviso guardando business_extras.json:', err.message)
     return {
       canchas: normalizarCanchas(data.canchas),
       horarios: normalizarHorarios(data.horarios)

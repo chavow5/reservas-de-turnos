@@ -164,16 +164,22 @@ export default function ReservaTurno() {
     return () => clearInterval(intervalo)
   }, [loading])
 
-  if (tenantLoading) {
+  // Solo mostrar carga completa si no hay ningún dato previo ni configuración por defecto
+  if (tenantLoading && !nombreNegocio && canchasActivas.length === 0) {
     return (
-      <div className="flex justify-center items-center h-96 text-slate-500 font-medium">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
-        Cargando datos de la cancha...
+      <div 
+        className="min-h-screen font-sans text-slate-800 pb-12 pt-4 sm:pt-8 px-3 sm:px-4 bg-cover bg-center bg-no-repeat bg-fixed flex items-center justify-center relative"
+        style={{ backgroundImage: "linear-gradient(rgba(15, 23, 42, 0.65), rgba(15, 23, 42, 0.75)), url('/fondo-canchas.jpg')" }}
+      >
+        <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-md w-full text-center relative z-10">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-4"></div>
+          <p className="text-slate-600 font-semibold text-sm">Cargando datos de la cancha...</p>
+        </div>
       </div>
     )
   }
 
-  if (tenantError) {
+  if (tenantError && !nombreNegocio) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 max-w-md text-center">
@@ -191,12 +197,15 @@ export default function ReservaTurno() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-12 pt-4 sm:pt-8 px-3 sm:px-4">
-      <div className="max-w-2xl mx-auto">
+    <div 
+      className="min-h-screen font-sans text-slate-800 pb-12 pt-4 sm:pt-8 px-3 sm:px-4 bg-cover bg-center bg-no-repeat bg-fixed relative"
+      style={{ backgroundImage: "linear-gradient(rgba(15, 23, 42, 0.65), rgba(15, 23, 42, 0.75)), url('/fondo-canchas.jpg')" }}
+    >
+      <div className="max-w-2xl mx-auto relative z-10">
 
         {/* ALERTA DE ERROR DE BASE DE DATOS */}
         {dbError && (
-          <div className="bg-rose-50 border border-rose-200 p-4 sm:p-5 rounded-2xl mb-4 sm:mb-6 text-rose-900 shadow-sm animate-fade-in">
+          <div className="bg-rose-50 border border-rose-200 p-4 sm:p-5 rounded-2xl mb-4 sm:mb-6 text-rose-900 shadow-xl animate-fade-in">
             <div className="flex items-start gap-3">
               <div className="flex-1">
                 <p className="font-bold text-sm sm:text-base mb-1">Problema de conexión</p>
@@ -214,7 +223,7 @@ export default function ReservaTurno() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 mb-6 sm:mb-8">
+        <form onSubmit={handleSubmit} className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-100 mb-6 sm:mb-8">
           
           <div className="mb-6 sm:mb-8 text-center sm:text-left">
             <h2 className="text-2xl sm:text-3xl font-black text-gray-800">
