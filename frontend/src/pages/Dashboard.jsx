@@ -213,6 +213,15 @@ function EstadoPagoBadge({ value, onChange, isSmall = false, isDark = false }) {
   )
 }
 
+const normalizarTexto = (texto) => {
+  if (!texto) return ''
+  return String(texto)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
 export default function Dashboard() {
   const { 
     negocio,
@@ -868,7 +877,7 @@ export default function Dashboard() {
     ? config.horarios
     : (tenantHorarios && tenantHorarios.length > 0 ? tenantHorarios : DEFAULT_HOURS)
 
-  // Filtrado compuesto para la tabla y tarjetas móviles
+  // Filtrado compuesto para la tabla y tarjetas móviles (Buscador universal)
   const reservasFiltradas = useMemo(() => {
     let lista = reservas
 
@@ -885,11 +894,63 @@ export default function Dashboard() {
     }
 
     if (searchTerm.trim()) {
-      lista = lista.filter(r => r.nombre.toLowerCase().includes(searchTerm.toLowerCase()))
+      const terminos = normalizarTexto(searchTerm).split(/\s+/).filter(Boolean)
+
+      lista = lista.filter(r => {
+        const nombreCancha = canchas.find(c => String(c.id) === String(r.cancha))?.nombre || `Cancha ${r.cancha}`
+        const turnoFormateado = formatearTurno(r.fecha, r.hora)
+
+        // Variaciones de fecha (ej. 2026-09-19 -> 19, 09, 19/09, 19-09, etc.)
+        let fechaParts = ''
+        if (r.fecha) {
+          const [yyyy, mm, dd] = r.fecha.split('-')
+          if (yyyy && mm && dd) {
+            fechaParts = `${dd} ${mm} ${yyyy} ${dd}/${mm} ${dd}/${mm}/${yyyy} ${dd}-${mm} ${dd}-${mm}-${yyyy}`
+          }
+        }
+
+        // Variaciones de horario (ej. 16:00 -> 16, 16hs, 16:00, etc.)
+        let horaParts = ''
+        if (r.hora) {
+          const horaNum = r.hora.split(':')[0]
+          horaParts = `${r.hora} ${horaNum}hs ${horaNum} hs ${horaNum}`
+        }
+
+        // Variaciones de estado de pago
+        let estadoPagoParts = ''
+        if (r.estado_pago === 'pagado') {
+          estadoPagoParts = 'pagado pago pagada completa pagados'
+        } else if (r.estado_pago === 'señado') {
+          estadoPagoParts = 'señado senado seña sena seño seno adelanto señados senados'
+        } else if (r.estado_pago === 'sin_pago') {
+          estadoPagoParts = 'sin pago sin_pago sin impago pendiente debe'
+        }
+
+        // Variaciones de registrado por
+        const creadoPorParts = `${r.creado_por || ''} ${String(r.payment_id || '').startsWith('manual_') ? 'manual admin colaborador administrador' : 'online cliente mercadopago mp web'}`
+
+        const fullSearchable = normalizarTexto(`
+          ${r.nombre || ''}
+          ${r.cancha || ''}
+          ${nombreCancha}
+          ${r.fecha || ''}
+          ${fechaParts}
+          ${turnoFormateado}
+          ${horaParts}
+          ${r.estado_pago || ''}
+          ${estadoPagoParts}
+          ${r.creado_por || ''}
+          ${creadoPorParts}
+          ${r.telefono || ''}
+          ${r.payment_id || ''}
+        `)
+
+        return terminos.every(term => fullSearchable.includes(term))
+      })
     }
 
     return lista
-  }, [reservas, reservasHoy, reservasProximos, reservasHistorial, filterPeriodo, filterCancha, filterPago, searchTerm])
+  }, [reservas, reservasHoy, reservasProximos, reservasHistorial, filterPeriodo, filterCancha, filterPago, searchTerm, canchas])
 
   const totalPages = Math.max(1, Math.ceil(reservasFiltradas.length / itemsPerPage))
   const startIndex = (currentPage - 1) * itemsPerPage
@@ -1571,16 +1632,27 @@ export default function Dashboard() {
                     </button>
                   </div>
 
-                  <div className="relative w-full sm:w-52">
+                  <div className="relative w-full sm:w-72">
                     <input
                       type="text"
-                      className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                      placeholder=""
+                      className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-slate-800 placeholder:text-slate-400 font-medium"
                       value={searchTerm}
                       onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                     />
                     <svg className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
+                    {searchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                        className="absolute right-2.5 top-1.5 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                        title="Limpiar búsqueda"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1598,7 +1670,16 @@ export default function Dashboard() {
                 </div>
               ) : reservasPaginadas.length === 0 ? (
                 <div className="bg-white p-6 rounded-2xl text-center text-slate-400 shadow-sm border border-slate-100 text-xs">
-                  No se encontraron reservas con los filtros aplicados ({filterPeriodo.toUpperCase()}).
+                  <p>No se encontraron reservas con los filtros aplicados ({filterPeriodo.toUpperCase()}).</p>
+                  {searchTerm.trim() && filterPeriodo !== 'todos' && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterPeriodo('todos')}
+                      className="mt-2.5 inline-block px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold hover:bg-blue-100 transition-colors cursor-pointer"
+                    >
+                      Buscar "{searchTerm}" en Todos los períodos →
+                    </button>
+                  )}
                 </div>
               ) : (
                 reservasPaginadas.map(r => {
@@ -1769,7 +1850,16 @@ export default function Dashboard() {
                     ) : reservasPaginadas.length === 0 ? (
                       <tr>
                         <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
-                          No se encontraron reservas con los filtros aplicados ({filterPeriodo.toUpperCase()}).
+                          <p>No se encontraron reservas con los filtros aplicados ({filterPeriodo.toUpperCase()}).</p>
+                          {searchTerm.trim() && filterPeriodo !== 'todos' && (
+                            <button
+                              type="button"
+                              onClick={() => setFilterPeriodo('todos')}
+                              className="mt-2.5 inline-block px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold hover:bg-blue-100 transition-colors cursor-pointer"
+                            >
+                              Buscar "{searchTerm}" en Todos los períodos →
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ) : (
