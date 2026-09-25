@@ -103,7 +103,11 @@ export default function ReservaTurno() {
       return alert('Debes reservar con al menos 2 horas de anticipación')
     }
 
-    if (reservas.some(r => r.fecha === form.fecha && r.hora === form.hora && r.cancha === form.cancha)) {
+    const slotOcupado = reservas.find(r => r.fecha === form.fecha && r.hora === form.hora && String(r.cancha) === String(form.cancha))
+    if (slotOcupado) {
+      if (slotOcupado.en_proceso) {
+        return alert('Este turno se encuentra en proceso de pago por otro jugador. Si no completa la seña en 10 minutos volverá a estar disponible, o podés elegir otro horario.')
+      }
       return alert('Horario ocupado. Por favor seleccione otro turno.')
     }
 

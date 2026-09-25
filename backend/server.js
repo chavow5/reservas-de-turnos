@@ -177,6 +177,55 @@ const getMPClient = (customAccessToken) => {
 }
 
 // ============================
+// GESTIÓN DE HOLDS (BLOQUEO TEMPORAL DE 10 MINUTOS)
+// ============================
+export const HOLD_EXPIRY_MS = 10 * 60 * 1000 // 10 minutos
+
+export const limpiarHoldsExpirados = async () => {
+  try {
+    const ahora = Date.now()
+    const { data: holds, error } = await supabase
+      .from('reservas')
+      .select('id, payment_id, created_at')
+      .ilike('payment_id', 'hold_%')
+      .eq('pagado', false)
+
+    if (error) {
+      console.warn('Aviso consultando holds para limpieza:', error.message)
+      return
+    }
+
+    if (holds && holds.length > 0) {
+      const idsAEliminar = []
+      for (const h of holds) {
+        const parts = String(h.payment_id || '').split('_')
+        const expiracion = Number(parts[1])
+        if (expiracion && ahora > expiracion) {
+          idsAEliminar.push(h.id)
+        } else if (!expiracion && h.created_at) {
+          const diffMs = ahora - new Date(h.created_at).getTime()
+          if (diffMs > HOLD_EXPIRY_MS) {
+            idsAEliminar.push(h.id)
+          }
+        }
+      }
+
+      if (idsAEliminar.length > 0) {
+        const { error: delError } = await supabase.from('reservas').delete().in('id', idsAEliminar)
+        if (!delError) {
+          console.log(`🧹 ${idsAEliminar.length} holds de reserva expirados fueron liberados`)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Error en limpiarHoldsExpirados:', err.message)
+  }
+}
+
+const holdCleanupTimer = setInterval(limpiarHoldsExpirados, 2 * 60 * 1000)
+if (holdCleanupTimer.unref) holdCleanupTimer.unref()
+
+// ============================
 // KEEP-ALIVE — Supabase (cada 4 días)
 // ============================
 const CUATRO_DIAS_MS = 4 * 24 * 60 * 60 * 1000
@@ -332,9 +381,11 @@ app.get(['/api/turnos-ocupados', '/turnos-ocupados'], async (req, res) => {
   const { desde, hasta } = req.query
 
   try {
+    await limpiarHoldsExpirados()
+
     let query = supabase
       .from('reservas')
-      .select('fecha, hora, cancha, estado_pago, pagado')
+      .select('fecha, hora, cancha, estado_pago, pagado, payment_id')
 
     if (desde) query = query.gte('fecha', desde)
     if (hasta) query = query.lte('fecha', hasta)
@@ -346,7 +397,27 @@ app.get(['/api/turnos-ocupados', '/turnos-ocupados'], async (req, res) => {
       return res.status(500).json({ error: error.message })
     }
 
-    res.json(data || [])
+    const ahora = Date.now()
+    const ocupados = (data || [])
+      .filter(r => {
+        // Filtrar holds que ya hayan superado su timestamp de expiración
+        if (String(r.payment_id || '').startsWith('hold_') && !r.pagado) {
+          const parts = String(r.payment_id).split('_')
+          const exp = Number(parts[1])
+          if (exp && ahora > exp) return false
+        }
+        return true
+      })
+      .map(r => ({
+        fecha: r.fecha,
+        hora: r.hora,
+        cancha: r.cancha,
+        estado_pago: r.estado_pago,
+        pagado: r.pagado,
+        en_proceso: String(r.payment_id || '').startsWith('hold_') && !r.pagado
+      }))
+
+    res.json(ocupados)
   } catch (err) {
     console.error('Error en /api/turnos-ocupados:', err)
     res.status(500).json({ error: 'Error al consultar disponibilidad' })
@@ -357,6 +428,7 @@ app.get(['/api/turnos-ocupados', '/turnos-ocupados'], async (req, res) => {
 // MERCADO PAGO: CREATE PREFERENCE
 // ============================
 app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
+  let holdRowId = null
   try {
     const { nombre, fecha, hora, cancha } = req.body
     const canchaFinal = cancha || '1'
@@ -364,6 +436,9 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
     if (!nombre || !fecha || !hora) {
       return res.status(400).json({ error: 'Datos incompletos' })
     }
+
+    // Limpiar holds expirados previamente
+    await limpiarHoldsExpirados()
 
     // Buscar configuración del negocio
     let mpAccessToken = DEFAULT_MP_ACCESS_TOKEN
@@ -389,20 +464,83 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
       })
     }
 
-    // Verificar disponibilidad
-    const { data: existingSlot } = await supabase
+    // Verificar disponibilidad exacta
+    const { data: existingSlots } = await supabase
       .from('reservas')
-      .select('id')
+      .select('id, pagado, estado_pago, payment_id, created_at')
       .eq('fecha', fecha)
       .eq('hora', hora)
       .eq('cancha', canchaFinal)
-      .limit(1)
 
-    if (existingSlot && existingSlot.length > 0) {
-      return res.status(400).json({ error: 'El turno ya se encuentra reservado.' })
+    if (existingSlots && existingSlots.length > 0) {
+      // 1. ¿Está ocupado por reserva ya confirmada?
+      const slotConfirmado = existingSlots.find(s =>
+        s.pagado === true ||
+        ['pagado', 'señado'].includes(s.estado_pago) ||
+        !String(s.payment_id || '').startsWith('hold_')
+      )
+      if (slotConfirmado) {
+        return res.status(400).json({ error: 'El turno ya se encuentra reservado.' })
+      }
+
+      // 2. ¿Hay un hold activo?
+      const holdActivo = existingSlots.find(s => String(s.payment_id || '').startsWith('hold_') && !s.pagado)
+      if (holdActivo) {
+        const parts = String(holdActivo.payment_id).split('_')
+        const expTime = Number(parts[1])
+        if (expTime && Date.now() < expTime) {
+          const minutosRestantes = Math.max(1, Math.ceil((expTime - Date.now()) / 60000))
+          return res.status(400).json({
+            error: `El turno está siendo reservado y abonado por otro jugador en este momento. Si no completa el pago, se liberará en aprox. ${minutosRestantes} minutos.`
+          })
+        }
+      }
     }
 
     const externalReference = `RES-${Date.now()}`
+    const expiryTimestamp = Date.now() + HOLD_EXPIRY_MS // 10 minutos
+    const holdPaymentId = `hold_${expiryTimestamp}_${externalReference}`
+
+    // Bloquear temporalmente el turno en base de datos (HOLD)
+    const { data: insertedHold, error: holdError } = await supabase
+      .from('reservas')
+      .insert([{
+        nombre: `[En proceso de pago] ${nombre}`,
+        fecha,
+        hora,
+        cancha: canchaFinal,
+        pagado: false,
+        estado_pago: 'sin_pago',
+        payment_id: holdPaymentId,
+        monto_pagado: 0
+      }])
+      .select()
+
+    if (holdError || !insertedHold?.[0]) {
+      console.error('❌ Error creando hold de reserva:', holdError)
+      return res.status(500).json({ error: 'No se pudo reservar temporalmente el turno.' })
+    }
+
+    holdRowId = insertedHold[0].id
+
+    // Doble verificación de concurrencia: si dos personas insertaron a la vez, sobrevive la primera
+    const { data: concurrencyCheck } = await supabase
+      .from('reservas')
+      .select('id, created_at')
+      .eq('fecha', fecha)
+      .eq('hora', hora)
+      .eq('cancha', canchaFinal)
+      .order('created_at', { ascending: true })
+
+    if (concurrencyCheck && concurrencyCheck.length > 1) {
+      if (concurrencyCheck[0].id !== holdRowId) {
+        await supabase.from('reservas').delete().eq('id', holdRowId)
+        return res.status(400).json({
+          error: 'El turno acaba de ser tomado por otro usuario hace un instante. Por favor elija otro turno.'
+        })
+      }
+    }
+
     const client = getMPClient(mpAccessToken)
     const preference = new Preference(client)
 
@@ -422,6 +560,9 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
         }
       ],
       binary_mode: true,
+      expires: true,
+      expiration_date_from: new Date().toISOString(),
+      expiration_date_to: new Date(expiryTimestamp).toISOString(),
       payment_methods: {
         excluded_payment_types: [{ id: 'ticket' }],
         installments: 1
@@ -433,10 +574,11 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
         fecha,
         hora,
         monto_sena: montoSena,
-        external_reference: externalReference
+        external_reference: externalReference,
+        hold_id: holdRowId
       },
       back_urls: {
-        success: `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}`,
+        success: `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}&external_reference=${externalReference}`,
         failure: `${baseUrl}`,
         pending: `${baseUrl}`
       },
@@ -449,13 +591,16 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
 
     const response = await preference.create({ body: preferenceBody })
 
-    console.log('✅ Preference creada — Ref:', externalReference)
+    console.log('✅ Preference creada y turno bloqueado por 10 min — Ref:', externalReference)
     res.json({
       init_point: response.init_point,
       external_reference: externalReference
     })
   } catch (error) {
     console.error('❌ Error create-preference:', error)
+    if (holdRowId) {
+      await supabase.from('reservas').delete().eq('id', holdRowId)
+    }
     const errorMsg = error?.message || error?.cause?.description || 'Error al procesar la reserva'
     res.status(500).json({ error: errorMsg, message: errorMsg })
   }
@@ -521,8 +666,9 @@ app.post(['/api/webhook', '/webhook'], async (req, res) => {
       return res.sendStatus(200)
     }
 
-    const { nombre, fecha, hora, cancha, monto_sena } = mpPayment.metadata || {}
+    const { nombre, fecha, hora, cancha, monto_sena, external_reference, hold_id } = mpPayment.metadata || {}
     const canchaFinal = cancha || '1'
+    const externalRef = external_reference || mpPayment.external_reference
 
     // Verificar si ya existe por payment_id
     const { data: existingByPid } = await supabase
@@ -536,21 +682,63 @@ app.post(['/api/webhook', '/webhook'], async (req, res) => {
       return res.sendStatus(200)
     }
 
-    // Verificar duplicado por slot
-    const { data: existing } = await supabase
+    // Buscar si hay hold o reserva existente para ese slot
+    const { data: existingSlots } = await supabase
       .from('reservas')
-      .select('id')
+      .select('*')
       .eq('fecha', fecha)
       .eq('hora', hora)
       .eq('cancha', canchaFinal)
-      .limit(1)
 
-    if (existing && existing.length > 0) {
-      console.log('⚠️ Doble reserva prevenida en webhook')
+    // 1. Buscar si hay un HOLD correspondiente a esta operación
+    const holdSlot = existingSlots?.find(s =>
+      String(s.payment_id || '').startsWith('hold_') &&
+      (!externalRef || String(s.payment_id).includes(externalRef))
+    ) || (hold_id ? existingSlots?.find(s => s.id === hold_id) : null)
+
+    if (holdSlot) {
+      const { error: updateErr } = await supabase
+        .from('reservas')
+        .update({
+          nombre: nombre || holdSlot.nombre.replace(/^\[En proceso de pago\]\s*/, ''),
+          pagado: true,
+          estado_pago: 'señado',
+          monto_pagado: monto_sena || mpPayment.transaction_amount || 100,
+          payment_id: String(paymentId)
+        })
+        .eq('id', holdSlot.id)
+
+      if (updateErr) {
+        console.error('Error actualizando hold en webhook:', updateErr)
+      } else {
+        console.log('✅ Hold convertido a reserva confirmada en webhook:', paymentId)
+      }
       return res.sendStatus(200)
     }
 
-    // Insertar reserva confirmada / señada
+    // 2. Si ya está ocupado por otra persona con otro pago confirmado -> CONFLICTO DE DOBLE RESERVA
+    const confirmedSlot = existingSlots?.find(s =>
+      s.pagado === true &&
+      !String(s.payment_id || '').startsWith('hold_') &&
+      s.payment_id !== String(paymentId)
+    )
+
+    if (confirmedSlot) {
+      console.error('🚨 ALERTA: Doble reserva detectada en webhook. Ya existía reserva:', confirmedSlot.id, 'Nuevo pago:', paymentId)
+      await supabase.from('reservas').insert([{
+        nombre: `[CONFLICTO PAGO DUPLICADO] ${nombre}`,
+        fecha,
+        hora,
+        cancha: canchaFinal,
+        pagado: true,
+        estado_pago: 'señado',
+        monto_pagado: monto_sena || mpPayment.transaction_amount || 100,
+        payment_id: `conflict_${paymentId}`
+      }])
+      return res.sendStatus(200)
+    }
+
+    // 3. Si no existía hold ni reserva confirmada, insertar normal
     const { error: insertError } = await supabase
       .from('reservas')
       .insert([
@@ -562,24 +750,15 @@ app.post(['/api/webhook', '/webhook'], async (req, res) => {
           pagado: true,
           estado_pago: 'señado',
           monto_pagado: monto_sena || mpPayment.transaction_amount || 100,
-          payment_id: String(paymentId),
-          creado_por: 'Cliente (Online - Mercado Pago)'
+          payment_id: String(paymentId)
         }
       ])
 
     if (insertError) {
       console.error('Error insertando reserva desde webhook:', insertError)
-      await supabase.from('reservas').insert([{
-        nombre,
-        fecha,
-        hora,
-        cancha: canchaFinal,
-        pagado: true,
-        payment_id: String(paymentId)
-      }])
+    } else {
+      console.log('✅ Reserva creada por webhook con éxito')
     }
-
-    console.log('✅ Reserva creada por webhook con éxito')
     res.sendStatus(200)
   } catch (error) {
     console.error('Webhook error:', error)
@@ -600,7 +779,8 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
       nombre,
       fecha,
       hora,
-      cancha
+      cancha,
+      external_reference
     } = req.body
 
     const pid = String(payment_id || collection_id || '').trim()
@@ -616,7 +796,7 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
 
     const canchaFinal = String(cancha || '1')
 
-    // 1. Idempotencia: Verificar si ya existe reserva por payment_id
+    // 1. Idempotencia: Verificar si ya existe reserva confirmada por payment_id
     if (pid) {
       const { data: existingByPid } = await supabase
         .from('reservas')
@@ -628,20 +808,6 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
         console.log('✅ Pago ya registrado previamente (idempotente):', pid)
         return res.json({ ok: true, ya_registrada: true, reserva: existingByPid[0] })
       }
-    }
-
-    // 2. Verificar si el turno ya está tomado en esa fecha/hora/cancha
-    const { data: existingSlot } = await supabase
-      .from('reservas')
-      .select('*')
-      .eq('fecha', fecha)
-      .eq('hora', hora)
-      .eq('cancha', canchaFinal)
-      .limit(1)
-
-    if (existingSlot && existingSlot.length > 0) {
-      console.log('⚠️ Turno ya tomado previamente:', existingSlot[0])
-      return res.json({ ok: true, ya_registrada: true, reserva: existingSlot[0] })
     }
 
     // Obtener monto_sena
@@ -659,7 +825,81 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
       console.warn('No se pudo obtener monto_sena:', e.message)
     }
 
-    // Insertar reserva
+    // 2. Buscar si hay slots existentes en esa fecha/hora/cancha
+    const { data: existingSlots } = await supabase
+      .from('reservas')
+      .select('*')
+      .eq('fecha', fecha)
+      .eq('hora', hora)
+      .eq('cancha', canchaFinal)
+
+    // Buscar si hay un HOLD correspondiente a esta operación
+    const holdSlot = existingSlots?.find(s =>
+      String(s.payment_id || '').startsWith('hold_') &&
+      (!external_reference || String(s.payment_id).includes(external_reference))
+    )
+
+    if (holdSlot) {
+      const { data: updated, error: updErr } = await supabase
+        .from('reservas')
+        .update({
+          nombre: String(nombre).trim(),
+          pagado: true,
+          estado_pago: 'señado',
+          monto_pagado: montoSena,
+          payment_id: pid || `mp_${Date.now()}`
+        })
+        .eq('id', holdSlot.id)
+        .select()
+
+      if (!updErr && updated?.[0]) {
+        console.log('🎉 Hold convertido a reserva confirmada vía confirmar-pago:', updated[0].id)
+        return res.json({ ok: true, reserva: updated[0] })
+      }
+    }
+
+    // Verificar si ya está ocupado por OTRA persona con OTRO pago confirmado
+    const slotOcupadoPorOtro = existingSlots?.find(s =>
+      s.pagado === true &&
+      s.payment_id !== pid &&
+      !String(s.payment_id || '').startsWith('hold_')
+    )
+
+    if (slotOcupadoPorOtro) {
+      console.error('🚨 CONFLICTO DOBLE RESERVA en confirmar-pago:', {
+        nuevoPid: pid,
+        ocupadoPorPid: slotOcupadoPorOtro.payment_id,
+        nombreNuevo: nombre,
+        nombreExistente: slotOcupadoPorOtro.nombre,
+        slot: `${fecha} ${hora} C${canchaFinal}`
+      })
+
+      // Registrar el pago duplicado para que el administrador lo vea inmediatamente en su panel
+      await supabase.from('reservas').insert([{
+        nombre: `[CONFLICTO PAGO DUPLICADO] ${nombre}`,
+        fecha,
+        hora,
+        cancha: canchaFinal,
+        pagado: true,
+        estado_pago: 'señado',
+        monto_pagado: montoSena,
+        payment_id: `conflict_${pid}`
+      }])
+
+      return res.status(409).json({
+        ok: false,
+        conflicto: true,
+        error: 'TURNO_DUPLICADO',
+        message: 'El turno ya fue asignado a otro jugador simultáneamente.',
+        payment_id: pid,
+        nombre,
+        fecha,
+        hora,
+        cancha: canchaFinal
+      })
+    }
+
+    // 3. Si no existía ni hold ni reserva previa, insertar nueva reserva
     const nuevaReserva = {
       nombre: String(nombre).trim(),
       fecha,
@@ -668,23 +908,13 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
       pagado: true,
       estado_pago: 'señado',
       monto_pagado: montoSena,
-      payment_id: pid || `mp_${Date.now()}`,
-      creado_por: 'Cliente (Online - Mercado Pago)'
+      payment_id: pid || `mp_${Date.now()}`
     }
 
     let { data: inserted, error: insertError } = await supabase
       .from('reservas')
       .insert([nuevaReserva])
       .select()
-
-    if (insertError) {
-      console.warn('Error insertando con creado_por en confirmar-pago, reintentando:', insertError.message)
-      const fallback = { ...nuevaReserva }
-      delete fallback.creado_por
-      const resFallback = await supabase.from('reservas').insert([fallback]).select()
-      inserted = resFallback.data
-      insertError = resFallback.error
-    }
 
     if (insertError) {
       console.error('❌ Error final al guardar reserva confirmada:', insertError)
@@ -791,6 +1021,8 @@ app.post(['/api/admin/login', '/admin/login'], async (req, res) => {
 // GET — Todas las reservas
 app.get(['/api/admin/reservas', '/admin/reservas'], verifyAuth, async (req, res) => {
   try {
+    await limpiarHoldsExpirados()
+
     const { data, error } = await supabase
       .from('reservas')
       .select('*')
@@ -801,34 +1033,44 @@ app.get(['/api/admin/reservas', '/admin/reservas'], verifyAuth, async (req, res)
       return res.status(500).json({ error: error.message })
     }
 
-    const enriched = (data || []).map(r => {
-      let creadoPor = r.creado_por
-      if (!creadoPor) {
-        if (r.payment_id && String(r.payment_id).startsWith('manual_')) {
-          const match = String(r.payment_id).match(/^manual_\d+_by_(.+)$/)
-          if (match && match[1]) {
-            try {
-              creadoPor = decodeURIComponent(match[1])
-            } catch {
-              creadoPor = match[1]
-            }
-          } else {
-            creadoPor = 'Admin / Colaborador'
-          }
-        } else if (r.pagado) {
-          creadoPor = 'Cliente (Online - Mercado Pago)'
-        } else {
-          creadoPor = 'Admin'
+    const enriched = (data || [])
+      .filter(r => {
+        // Excluir holds temporales que aún no se hayan abonado
+        if (String(r.payment_id || '').startsWith('hold_') && !r.pagado) {
+          return false
         }
-      }
+        return true
+      })
+      .map(r => {
+        let creadoPor = r.creado_por
+        if (!creadoPor) {
+          if (String(r.payment_id || '').startsWith('conflict_')) {
+            creadoPor = '⚠️ CONFLICTO DUPLICADO (Mercado Pago)'
+          } else if (r.payment_id && String(r.payment_id).startsWith('manual_')) {
+            const match = String(r.payment_id).match(/^manual_\d+_by_(.+)$/)
+            if (match && match[1]) {
+              try {
+                creadoPor = decodeURIComponent(match[1])
+              } catch {
+                creadoPor = match[1]
+              }
+            } else {
+              creadoPor = 'Admin / Colaborador'
+            }
+          } else if (r.pagado) {
+            creadoPor = 'Cliente (Online - Mercado Pago)'
+          } else {
+            creadoPor = 'Admin'
+          }
+        }
 
-      return {
-        ...r,
-        estado_pago: r.estado_pago || (r.pagado ? 'pagado' : 'sin_pago'),
-        monto_pagado: r.monto_pagado !== undefined ? r.monto_pagado : (r.pagado ? 100 : 0),
-        creado_por: creadoPor
-      }
-    })
+        return {
+          ...r,
+          estado_pago: r.estado_pago || (r.pagado ? 'pagado' : 'sin_pago'),
+          monto_pagado: r.monto_pagado !== undefined ? r.monto_pagado : (r.pagado ? 100 : 0),
+          creado_por: creadoPor
+        }
+      })
 
     res.json(enriched)
   } catch (err) {

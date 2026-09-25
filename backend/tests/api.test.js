@@ -165,6 +165,34 @@ test('11. GET /api/health y /api/health/db funcionan con prefijo /api', async ()
   assert.ok(resDb.status === 200 || resDb.status === 503)
 })
 
+test('12. /api/confirmar-pago detecta colisiones de doble reserva simultánea (409)', async () => {
+  const dummyPid = 'payment_test_' + Date.now()
+  // Intentar confirmar un pago cuando el turno ya pertenece a otro pago
+  const resConflict = await fetch(`${API_URL}/api/confirmar-pago`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      payment_id: dummyPid,
+      status: 'approved',
+      nombre: 'Jugador 2 Colisión',
+      fecha: '2026-09-25',
+      hora: '15:00',
+      cancha: '2' // Ya ocupada por nacho2 con payment_id 180840223234
+    })
+  })
+
+  assert.equal(resConflict.status, 409, 'Debe devolver código 409 de conflicto')
+  const data = await resConflict.json()
+  assert.equal(data.ok, false)
+  assert.equal(data.conflicto, true)
+  assert.equal(data.error, 'TURNO_DUPLICADO')
+
+  // Limpiar fila de prueba creada
+  const { createClient } = await import('@supabase/supabase-js')
+  const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE)
+  await sb.from('reservas').delete().eq('payment_id', `conflict_${dummyPid}`)
+})
+
 test.after(() => {
   if (server && server.close) {
     server.close()

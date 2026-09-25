@@ -22,6 +22,8 @@ export default function Success() {
 
   const [confirmando, setConfirmando] = useState(false)
   const [guardadoExitoso, setGuardadoExitoso] = useState(false)
+  const [conflicto, setConflicto] = useState(false)
+  const [mensajeConflicto, setMensajeConflicto] = useState('')
   const confirmedRef = useRef(false)
 
   const hasData = nombre && fecha && hora && cancha
@@ -48,10 +50,13 @@ export default function Success() {
           merchant_order_id: searchParams.get('merchant_order_id')
         })
       })
-        .then(res => res.json())
-        .then(data => {
-          if (data.ok) {
+        .then(async res => {
+          const data = await res.json()
+          if (res.ok && data.ok) {
             setGuardadoExitoso(true)
+          } else if (data.conflicto) {
+            setConflicto(true)
+            setMensajeConflicto(data.message || 'El turno fue reservado por otro jugador simultáneamente.')
           }
         })
         .catch(err => {
@@ -68,9 +73,11 @@ export default function Success() {
 
   const formattedDate = fecha ? fecha.split('-').reverse().join('/') : ''
   const paymentProofText = paymentId ? `\n- *Comprobante MP:* #${paymentId}` : ''
-  const baseMessage = hasData
-    ? `*¡Hola! Paso a confirmar mi reserva en ${nombreNegocio}:*\n\n- *Nombre:* ${nombre}\n- *Fecha:* ${formattedDate}\n- *Hora:* ${hora} hs\n- *Cancha:* Cancha ${cancha}${paymentProofText}`
-    : `*Hola, quiero consultar por una reserva en ${nombreNegocio}.*`
+  const baseMessage = conflicto
+    ? `*¡Hola! Tuve una coincidencia simultánea de turno al reservar en ${nombreNegocio}:*\n\n- *Nombre:* ${nombre}\n- *Fecha:* ${formattedDate}\n- *Hora:* ${hora} hs\n- *Cancha:* Cancha ${cancha}${paymentProofText}\n\nPor favor contáctenme para coordinar otro horario o gestionar la devolución de la seña.`
+    : hasData
+      ? `*¡Hola! Paso a confirmar mi reserva en ${nombreNegocio}:*\n\n- *Nombre:* ${nombre}\n- *Fecha:* ${formattedDate}\n- *Hora:* ${hora} hs\n- *Cancha:* Cancha ${cancha}${paymentProofText}`
+      : `*Hola, quiero consultar por una reserva en ${nombreNegocio}.*`
 
   const whatsappText = encodeURIComponent(baseMessage)
   const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappText}`
@@ -91,13 +98,23 @@ export default function Success() {
         )}
 
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center relative overflow-hidden mb-8">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-full -mr-16 -mt-16 opacity-50 pointer-events-none"></div>
+          <div className={`absolute top-0 right-0 w-32 h-32 rounded-full -mr-16 -mt-16 opacity-50 pointer-events-none ${
+            conflicto ? 'bg-amber-100' : 'bg-emerald-50'
+          }`}></div>
           
           <div className="flex justify-center mb-4">
             <div className={`w-20 h-20 rounded-full flex items-center justify-center shadow-sm ${
-              mpUrl ? 'bg-blue-100 shadow-blue-200' : 'bg-emerald-100 shadow-emerald-200'
+              conflicto 
+                ? 'bg-amber-100 shadow-amber-200 text-amber-600'
+                : mpUrl 
+                  ? 'bg-blue-100 shadow-blue-200' 
+                  : 'bg-emerald-100 shadow-emerald-200'
             }`}>
-              {mpUrl ? (
+              {conflicto ? (
+                <svg className="w-10 h-10 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              ) : mpUrl ? (
                 <svg className="w-10 h-10 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                 </svg>
@@ -109,15 +126,32 @@ export default function Success() {
             </div>
           </div>
 
-          <h1 className="text-3xl font-black text-slate-800 mb-2">
-            {mpUrl ? '¡Reserva en Proceso!' : '¡Turno Confirmado!'}
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2">
+            {conflicto 
+              ? '¡Pago Registrado con Conflicto de Turno!' 
+              : mpUrl 
+                ? '¡Reserva en Proceso!' 
+                : '¡Turno Confirmado!'}
           </h1>
           
-          <p className="text-slate-500 mb-6">
-            {mpUrl 
-              ? `Abrimos Mercado Pago en otra pestaña para que abones la seña. Al completarlo, tu lugar queda asegurado.`
-              : `El pago fue aprobado correctamente y tu reserva en ${nombreNegocio} está asegurada.`}
+          <p className="text-slate-500 mb-6 text-sm sm:text-base">
+            {conflicto
+              ? `Tu seña fue aprobada en Mercado Pago pero otro jugador completó la reserva del mismo horario unos segundos antes.`
+              : mpUrl 
+                ? `Abrimos Mercado Pago en otra pestaña para que abones la seña. Al completarlo, tu lugar queda asegurado.`
+                : `El pago fue aprobado correctamente y tu reserva en ${nombreNegocio} está asegurada.`}
           </p>
+
+          {conflicto && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6 text-left">
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-900 mb-1">
+                ¿Qué hacemos ahora?
+              </p>
+              <p className="text-xs sm:text-sm text-amber-800 leading-relaxed">
+                No te preocupes: tu dinero está registrado con el comprobante <strong>#{paymentId}</strong>. Comunicate por WhatsApp con nosotros y podemos <strong>reasignar tu seña a otro horario/cancha disponible</strong> o bien <strong>reintegrarte el 100% del dinero</strong> inmediatamente.
+              </p>
+            </div>
+          )}
 
           {mpUrl && (
             <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-4 mb-6 text-center">
