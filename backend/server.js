@@ -177,9 +177,9 @@ const getMPClient = (customAccessToken) => {
 }
 
 // ============================
-// GESTIÓN DE HOLDS (BLOQUEO TEMPORAL DE 10 MINUTOS)
+// GESTIÓN DE HOLDS (BLOQUEO TEMPORAL DE 3 MINUTOS)
 // ============================
-export const HOLD_EXPIRY_MS = 10 * 60 * 1000 // 10 minutos
+export const HOLD_EXPIRY_MS = 3 * 60 * 1000 // 3 minutos
 
 export const limpiarHoldsExpirados = async () => {
   try {
@@ -222,7 +222,7 @@ export const limpiarHoldsExpirados = async () => {
   }
 }
 
-const holdCleanupTimer = setInterval(limpiarHoldsExpirados, 2 * 60 * 1000)
+const holdCleanupTimer = setInterval(limpiarHoldsExpirados, 30 * 1000)
 if (holdCleanupTimer.unref) holdCleanupTimer.unref()
 
 // ============================
@@ -498,7 +498,7 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
     }
 
     const externalReference = `RES-${Date.now()}`
-    const expiryTimestamp = Date.now() + HOLD_EXPIRY_MS // 10 minutos
+    const expiryTimestamp = Date.now() + HOLD_EXPIRY_MS // 3 minutos
     const holdPaymentId = `hold_${expiryTimestamp}_${externalReference}`
 
     // Bloquear temporalmente el turno en base de datos (HOLD)
@@ -544,8 +544,35 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
     const client = getMPClient(mpAccessToken)
     const preference = new Preference(client)
 
-    const baseUrl = (process.env.FRONTEND_URL || 'https://reservas-de-turnos.vercel.app').replace(/\/$/, '')
-    const isHttps = baseUrl.startsWith('https://')
+    // Determinar la URL base de retorno (Mercado Pago requiere estrictamente HTTPS para activar auto_return)
+    let baseUrl = 'https://reservas-de-turnos.vercel.app'
+    let isLocalOrigin = false
+    let localPort = '5173'
+
+    const clientOrigin = req.headers.origin || req.headers.referer
+    if (clientOrigin) {
+      try {
+        const parsed = new URL(clientOrigin)
+        if (parsed.protocol === 'https:') {
+          baseUrl = parsed.origin
+        } else if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+          isLocalOrigin = true
+          localPort = parsed.port || '5173'
+        }
+      } catch {}
+    }
+
+    if (!baseUrl.startsWith('https://') && process.env.FRONTEND_URL && process.env.FRONTEND_URL.startsWith('https://')) {
+      baseUrl = process.env.FRONTEND_URL.replace(/\/$/, '')
+    }
+
+    const localRedirectParam = isLocalOrigin ? `&local_redirect=${localPort}` : ''
+    const successUrl = `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}&external_reference=${externalReference}${localRedirectParam}`
+
+    let notificationUrl = process.env.WEBHOOK_URL || (process.env.BACKEND_URL ? `${process.env.BACKEND_URL.replace(/\/$/, '')}/webhook` : 'https://reservas-de-turnos.onrender.com/webhook')
+    if (!notificationUrl.startsWith('https://')) {
+      notificationUrl = 'https://reservas-de-turnos.vercel.app/api/webhook'
+    }
 
     const preferenceBody = {
       external_reference: externalReference,
@@ -578,20 +605,17 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
         hold_id: holdRowId
       },
       back_urls: {
-        success: `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}&external_reference=${externalReference}`,
+        success: successUrl,
         failure: `${baseUrl}`,
         pending: `${baseUrl}`
       },
-      notification_url: process.env.WEBHOOK_URL || (process.env.BACKEND_URL ? `${process.env.BACKEND_URL.replace(/\/$/, '')}/webhook` : 'https://reservas-de-turnos.onrender.com/webhook')
-    }
-
-    if (isHttps) {
-      preferenceBody.auto_return = 'approved'
+      auto_return: 'approved',
+      notification_url: notificationUrl
     }
 
     const response = await preference.create({ body: preferenceBody })
 
-    console.log('✅ Preference creada y turno bloqueado por 10 min — Ref:', externalReference)
+    console.log('✅ Preference creada y turno bloqueado por 3 min — Ref:', externalReference)
     res.json({
       init_point: response.init_point,
       external_reference: externalReference

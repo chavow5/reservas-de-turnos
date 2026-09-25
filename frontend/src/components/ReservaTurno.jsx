@@ -106,7 +106,7 @@ export default function ReservaTurno() {
     const slotOcupado = reservas.find(r => r.fecha === form.fecha && r.hora === form.hora && String(r.cancha) === String(form.cancha))
     if (slotOcupado) {
       if (slotOcupado.en_proceso) {
-        return alert('Este turno se encuentra en proceso de pago por otro jugador. Si no completa la seña en 10 minutos volverá a estar disponible, o podés elegir otro horario.')
+        return alert('Este turno está siendo reservado y abonado por otro jugador en este momento. Por favor espera 3 minutos para ver si se libera, o elegí otro horario disponible.')
       }
       return alert('Horario ocupado. Por favor seleccione otro turno.')
     }
@@ -201,20 +201,36 @@ export default function ReservaTurno() {
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-12 pt-4 sm:pt-8 px-3 sm:px-4">
       <div className="max-w-2xl mx-auto">
 
-        {/* ALERTA DE ERROR DE BASE DE DATOS */}
+        {/* ALERTA DE ERROR / AVISO */}
         {dbError && (
-          <div className="bg-rose-50 border border-rose-200 p-4 sm:p-5 rounded-2xl mb-4 sm:mb-6 text-rose-900 shadow-sm animate-fade-in">
+          <div className={`p-4 sm:p-5 rounded-2xl mb-4 sm:mb-6 shadow-sm animate-fade-in border ${
+            dbError.includes('en proceso') || dbError.includes('reservado') || dbError.includes('ocupado') || dbError.includes('tomado')
+              ? 'bg-amber-50 border-amber-200 text-amber-900'
+              : 'bg-rose-50 border-rose-200 text-rose-900'
+          }`}>
             <div className="flex items-start gap-3">
               <div className="flex-1">
-                <p className="font-bold text-sm sm:text-base mb-1">Problema de conexión</p>
-                <p className="text-xs sm:text-sm opacity-95 mb-3">{dbError}</p>
+                <p className="font-bold text-sm sm:text-base mb-1">
+                  {dbError.includes('en proceso') || dbError.includes('reservado') || dbError.includes('ocupado') || dbError.includes('tomado')
+                    ? 'Turno en Proceso de Reserva'
+                    : 'Problema al procesar'}
+                </p>
+                <p className="text-xs sm:text-sm opacity-95 mb-3 leading-relaxed">{dbError}</p>
                 <button
                   type="button"
-                  onClick={handleSubmit}
-                  disabled={loading}
-                  className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-rose-200 flex items-center gap-2"
+                  onClick={() => {
+                    setDbError(null)
+                    fetchTurnosOcupados()
+                  }}
+                  className={`text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2 ${
+                    dbError.includes('en proceso') || dbError.includes('reservado') || dbError.includes('ocupado') || dbError.includes('tomado')
+                      ? 'bg-amber-600 hover:bg-amber-700 active:scale-95 text-white shadow-amber-200'
+                      : 'bg-rose-600 hover:bg-rose-700 active:scale-95 text-white shadow-rose-200'
+                  }`}
                 >
-                  {loading ? 'Reintentando...' : 'Reintentar ahora'}
+                  {dbError.includes('en proceso') || dbError.includes('reservado') || dbError.includes('ocupado') || dbError.includes('tomado')
+                    ? 'Actualizar disponibilidad y elegir otro'
+                    : (loading ? 'Reintentando...' : 'Reintentar ahora')}
                 </button>
               </div>
             </div>

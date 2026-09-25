@@ -28,6 +28,14 @@ export default function Success() {
 
   const hasData = nombre && fecha && hora && cancha
 
+  // Si la compra se inició desde localhost, reenviar al puerto local de desarrollo
+  const localRedirect = searchParams.get('local_redirect')
+  useEffect(() => {
+    if (localRedirect && typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+      window.location.href = `http://localhost:${localRedirect}/success${window.location.search}`
+    }
+  }, [localRedirect])
+
   // Confirmar reserva automáticamente al volver de Mercado Pago con pago aprobado
   useEffect(() => {
     if (isApproved && hasData && !confirmedRef.current) {
