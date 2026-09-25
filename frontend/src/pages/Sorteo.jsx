@@ -83,7 +83,7 @@ export default function Sorteo() {
                 <span className="font-medium">¿Todavía no reservaste la cancha?</span>
               </p>
               <Link
-                to={`/${slug}`}
+                to="/"
                 className="inline-block bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm shadow-blue-200"
               >
                 Ir a Reservar Cancha en {nombreNegocio}
