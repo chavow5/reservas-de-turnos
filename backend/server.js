@@ -312,7 +312,7 @@ app.get(['/api/config', '/config'], async (req, res) => {
   try {
     const now = Date.now()
     if (cachedConfig && now < cachedConfigExpiry) {
-      res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=300')
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
       return res.json(cachedConfig)
     }
 
@@ -368,7 +368,7 @@ app.get(['/api/config', '/config'], async (req, res) => {
     cachedConfig = responsePayload
     cachedConfigExpiry = now + CONFIG_CACHE_TTL_MS
 
-    res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=300')
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
     res.json(responsePayload)
   } catch (err) {
     console.error('Error obteniendo /api/config:', err)
@@ -1309,6 +1309,7 @@ app.delete(['/api/admin/reservas/:id', '/admin/reservas/:id'], verifyAuth, requi
 // ============================
 app.get(['/api/admin/canchas', '/admin/canchas'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
     const extras = getBusinessExtras()
     res.json(extras.canchas)
   } catch (err) {
@@ -1569,6 +1570,7 @@ app.delete(['/api/admin/canchas/:canchaId', '/admin/canchas/:canchaId'], verifyA
 // ============================
 app.get(['/api/admin/config', '/admin/config'], verifyAuth, requireAdmin, async (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
     let { data: negocio } = await supabase
       .from('negocios')
       .select('id, nombre, telefono, direccion, plan, activo, monto_sena, precio_total, mp_access_token')
@@ -1628,16 +1630,10 @@ app.put(['/api/admin/config', '/admin/config'], verifyAuth, requireAdmin, async 
       saveBusinessExtras({ canchas: normalizarCanchas(canchas) })
     }
 
-    let { data: existingNeg } = await supabase.from('negocios').select('id').limit(1).maybeSingle()
+    let { data: existingNeg } = await supabase.from('negocios').select('id, nombre, telefono, direccion, monto_sena, precio_total, mp_access_token').limit(1).maybeSingle()
     let savedNegocio = null
 
-    if (existingNeg?.id) {
-      if (canchas !== undefined) {
-        try {
-          updateData.canchas = normalizarCanchas(canchas)
-        } catch (e) {}
-      }
-
+    if (existingNeg?.id && Object.keys(updateData).length > 0) {
       const { data, error } = await supabase
         .from('negocios')
         .update(updateData)
@@ -1654,15 +1650,15 @@ app.put(['/api/admin/config', '/admin/config'], verifyAuth, requireAdmin, async 
     const extras = getBusinessExtras()
 
     const fullConfig = {
-      id: savedNegocio?.id || '1',
-      nombre: savedNegocio?.nombre || updateData.nombre || 'Cancha Fútbol',
-      telefono: savedNegocio?.telefono !== undefined ? savedNegocio.telefono : (updateData.telefono || ''),
-      direccion: savedNegocio?.direccion !== undefined ? savedNegocio.direccion : (updateData.direccion || ''),
-      monto_sena: savedNegocio?.monto_sena !== undefined ? savedNegocio.monto_sena : updateData.monto_sena,
-      precio_total: savedNegocio?.precio_total !== undefined ? savedNegocio.precio_total : updateData.precio_total,
+      id: savedNegocio?.id || existingNeg?.id || '1',
+      nombre: savedNegocio?.nombre || updateData.nombre || existingNeg?.nombre || 'Cancha Fútbol',
+      telefono: savedNegocio?.telefono !== undefined ? savedNegocio.telefono : (updateData.telefono !== undefined ? updateData.telefono : (existingNeg?.telefono || '')),
+      direccion: savedNegocio?.direccion !== undefined ? savedNegocio.direccion : (updateData.direccion !== undefined ? updateData.direccion : (existingNeg?.direccion || '')),
+      monto_sena: savedNegocio?.monto_sena !== undefined ? savedNegocio.monto_sena : (updateData.monto_sena !== undefined ? updateData.monto_sena : (existingNeg?.monto_sena || 100)),
+      precio_total: savedNegocio?.precio_total !== undefined ? savedNegocio.precio_total : (updateData.precio_total !== undefined ? updateData.precio_total : (existingNeg?.precio_total || 100)),
       horarios: extras.horarios,
       canchas: extras.canchas,
-      tiene_mp_token: !!(savedNegocio?.mp_access_token || updateData.mp_access_token)
+      tiene_mp_token: !!(savedNegocio?.mp_access_token || updateData.mp_access_token || existingNeg?.mp_access_token)
     }
 
     invalidateConfigCache()

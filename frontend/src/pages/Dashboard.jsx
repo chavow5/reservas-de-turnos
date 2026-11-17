@@ -388,6 +388,9 @@ export default function Dashboard() {
           horarios: data.horarios && data.horarios.length > 0 ? data.horarios : (prev.horarios || DEFAULT_HOURS),
           tiene_mp_token: !!data.tiene_mp_token
         }))
+        if (data.canchas && Array.isArray(data.canchas) && data.canchas.length > 0) {
+          setCanchas(data.canchas)
+        }
         if (updateLocalConfig) {
           updateLocalConfig(data)
         }
@@ -407,12 +410,15 @@ export default function Dashboard() {
         const data = await res.json()
         if (Array.isArray(data) && data.length > 0) {
           setCanchas(data)
+          if (updateLocalConfig) {
+            updateLocalConfig({ canchas: data })
+          }
         }
       }
     } catch (err) {
       console.error('Error fetching canchas:', err)
     }
-  }, [getAuthHeaders])
+  }, [getAuthHeaders, updateLocalConfig])
 
   // Alternar disponibilidad de una cancha (Admin y Colaborador)
   const toggleDisponibilidadCancha = async (canchaId, estadoActual) => {
@@ -2236,7 +2242,7 @@ export default function Dashboard() {
                               setCanchaEditandoError('')
                               setCanchaEditandoForm({
                                 nombre: c.nombre,
-                                precio: c.precio || config.precio_total || tenantPrecioTotal || ''
+                                precio: c.precio !== undefined ? c.precio : (config.precio_total || tenantPrecioTotal || '')
                               })
                               setModalEditarCancha(c)
                             }}
@@ -2252,260 +2258,6 @@ export default function Dashboard() {
               )}
 
             </div>
-
-            {/* MODAL: EDITAR CANCHA (NOMBRE Y PRECIO) */}
-            {modalEditarCancha && (
-              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-                <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
-                  <div className="flex justify-between items-center mb-3">
-                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                      <span className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-black">
-                        ✏️
-                      </span>
-                      Editar {modalEditarCancha.nombre}
-                    </h3>
-                    <button
-                      onClick={() => setModalEditarCancha(null)}
-                      className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 rounded-lg cursor-pointer"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  <p className="text-xs text-slate-500 mb-4">
-                    Modificá el nombre y el precio específico de esta cancha.
-                  </p>
-
-                  {canchaEditandoError && (
-                    <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl mb-4">
-                      {canchaEditandoError}
-                    </div>
-                  )}
-
-                  <form onSubmit={handleEditarCancha} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                        Nombre de la Cancha
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                        value={canchaEditandoForm.nombre}
-                        onChange={e => setCanchaEditandoForm({ ...canchaEditandoForm, nombre: e.target.value })}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                        Precio de la Cancha Completa ($ ARS)
-                      </label>
-                      <div className="relative">
-                        <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold text-xs sm:text-sm">$</span>
-                        <input
-                          type="number"
-                          min="1"
-                          required
-                          className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                          value={canchaEditandoForm.precio}
-                          onChange={e => setCanchaEditandoForm({ ...canchaEditandoForm, precio: e.target.value })}
-                        />
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        Este precio se cobrará cuando los clientes reserven esta cancha en particular.
-                      </p>
-                    </div>
-
-                    <div className="flex gap-2 pt-2">
-                      <button
-                        type="button"
-                        disabled={guardandoEdicionCancha}
-                        onClick={() => setModalEditarCancha(null)}
-                        className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={guardandoEdicionCancha}
-                        className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        {guardandoEdicionCancha ? 'Guardando...' : 'Guardar Cambios'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* MODAL: AGREGAR NUEVA CANCHA */}
-            {modalNuevaCancha && (
-              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-                <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
-                  <div className="flex justify-between items-center mb-3">
-                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                      <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-sm font-black">
-                        +
-                      </span>
-                      Agregar Nueva Cancha
-                    </h3>
-                    <button
-                      onClick={() => setModalNuevaCancha(false)}
-                      className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 rounded-lg cursor-pointer"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  <p className="text-xs text-slate-500 mb-4">
-                    Ingresá el nombre y precio para sumar una nueva cancha a tu complejo.
-                  </p>
-
-                  {canchaError && (
-                    <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl mb-4">
-                      {canchaError}
-                    </div>
-                  )}
-
-                  <form onSubmit={handleAgregarCancha} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                        Nombre de la Cancha
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                        value={nuevaCanchaForm.nombre}
-                        onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, nombre: e.target.value })}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                        Precio de la Cancha Completa ($ ARS)
-                      </label>
-                      <div className="relative">
-                        <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold text-xs sm:text-sm">$</span>
-                        <input
-                          type="number"
-                          min="1"
-                          className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                          value={nuevaCanchaForm.precio}
-                          onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, precio: e.target.value })}
-                        />
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        Si se deja vacío, utilizará el precio general del negocio (${config.precio_total || tenantPrecioTotal || 100}).
-                      </p>
-                    </div>
-
-                    {!isAdmin && (
-                      <div>
-                        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                          Contraseña de Administrador
-                        </label>
-                        <input
-                          type="password"
-                          required
-                          className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                          value={nuevaCanchaForm.password}
-                          onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, password: e.target.value })}
-                        />
-                        <p className="text-[11px] text-slate-400 mt-1">
-                          Requerida para autorizar la creación de la cancha.
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="flex gap-2 pt-2">
-                      <button
-                        type="button"
-                        disabled={guardandoCancha}
-                        onClick={() => setModalNuevaCancha(false)}
-                        className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={guardandoCancha}
-                        className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        {guardandoCancha ? 'Guardando...' : 'Agregar Cancha'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* MODAL: ELIMINAR CANCHA */}
-            {modalEliminarCancha && (
-              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-                <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
-                  <div className="flex justify-between items-center mb-3">
-                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                      <span className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center text-sm font-black">
-                        ✕
-                      </span>
-                      Eliminar {modalEliminarCancha.nombre}
-                    </h3>
-                    <button
-                      onClick={() => setModalEliminarCancha(null)}
-                      className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 rounded-lg cursor-pointer"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  <p className="text-xs text-slate-500 mb-4">
-                    ¿Estás seguro de que deseás eliminar esta cancha?
-                  </p>
-
-                  {eliminarError && (
-                    <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl mb-4">
-                      {eliminarError}
-                    </div>
-                  )}
-
-                  <form onSubmit={handleEliminarCancha} className="space-y-4">
-                    {!isAdmin && (
-                      <div>
-                        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                          Contraseña de Administrador
-                        </label>
-                        <input
-                          type="password"
-                          required
-                          className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                          value={eliminarPassword}
-                          onChange={e => setEliminarPassword(e.target.value)}
-                        />
-                      </div>
-                    )}
-
-                    <div className="flex gap-2 pt-2">
-                      <button
-                        type="button"
-                        disabled={eliminandoCancha}
-                        onClick={() => setModalEliminarCancha(null)}
-                        className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={eliminandoCancha}
-                        className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        {eliminandoCancha ? 'Eliminando...' : 'Eliminar Cancha'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
 
           </div>
         )}
@@ -2648,10 +2400,22 @@ export default function Dashboard() {
                             </div>
                             <div className="min-w-0">
                               <h4 className="font-black text-slate-800 text-sm truncate">{c.nombre}</h4>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                  ${precioActual.toLocaleString('es-AR')}
-                                </span>
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <span className="text-[11px] font-bold text-slate-500">Precio:</span>
+                                <div className="relative flex items-center">
+                                  <span className="absolute left-2 text-slate-400 font-extrabold text-xs">$</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    aria-label={`Precio de ${c.nombre}`}
+                                    className="w-24 sm:w-28 pl-5 pr-2 py-1 text-xs font-black text-emerald-800 bg-emerald-50 hover:bg-emerald-100/70 border border-emerald-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all"
+                                    value={c.precio !== undefined ? c.precio : (config.precio_total || tenantPrecioTotal || '')}
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? '' : Number(e.target.value)
+                                      setCanchas(prev => prev.map(item => item.id === c.id ? { ...item, precio: val } : item))
+                                    }}
+                                  />
+                                </div>
                                 <span className="text-[10px] text-slate-400 font-medium">por turno</span>
                               </div>
                             </div>
@@ -2687,7 +2451,7 @@ export default function Dashboard() {
                               setCanchaEditandoError('')
                               setCanchaEditandoForm({
                                 nombre: c.nombre,
-                                precio: c.precio || config.precio_total || tenantPrecioTotal || ''
+                                precio: c.precio !== undefined ? c.precio : (config.precio_total || tenantPrecioTotal || '')
                               })
                               setModalEditarCancha(c)
                             }}
@@ -3030,6 +2794,264 @@ export default function Dashboard() {
               )}
             </div>
 
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* MODALES GLOBALES DE CANCHAS (ACCESIBLES DESDE CUALQUIER PESTAÑA) */}
+        {/* ======================================================== */}
+
+        {/* MODAL: EDITAR CANCHA (NOMBRE Y PRECIO) */}
+        {modalEditarCancha && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-black">
+                    ✏️
+                  </span>
+                  Editar {modalEditarCancha.nombre}
+                </h3>
+                <button
+                  onClick={() => setModalEditarCancha(null)}
+                  className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 rounded-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500 mb-4">
+                Modificá el nombre y el precio específico de esta cancha.
+              </p>
+
+              {canchaEditandoError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl mb-4">
+                  {canchaEditandoError}
+                </div>
+              )}
+
+              <form onSubmit={handleEditarCancha} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    Nombre de la Cancha
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    value={canchaEditandoForm.nombre}
+                    onChange={e => setCanchaEditandoForm({ ...canchaEditandoForm, nombre: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    Precio de la Cancha Completa ($ ARS)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold text-xs sm:text-sm">$</span>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      value={canchaEditandoForm.precio}
+                      onChange={e => setCanchaEditandoForm({ ...canchaEditandoForm, precio: e.target.value })}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Este precio se cobrará cuando los clientes reserven esta cancha en particular.
+                  </p>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={guardandoEdicionCancha}
+                    onClick={() => setModalEditarCancha(null)}
+                    className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={guardandoEdicionCancha}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {guardandoEdicionCancha ? 'Guardando...' : 'Guardar Cambios'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: AGREGAR NUEVA CANCHA */}
+        {modalNuevaCancha && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-sm font-black">
+                    +
+                  </span>
+                  Agregar Nueva Cancha
+                </h3>
+                <button
+                  onClick={() => setModalNuevaCancha(false)}
+                  className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 rounded-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500 mb-4">
+                Ingresá el nombre y precio para sumar una nueva cancha a tu complejo.
+              </p>
+
+              {canchaError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl mb-4">
+                  {canchaError}
+                </div>
+              )}
+
+              <form onSubmit={handleAgregarCancha} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    Nombre de la Cancha
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    value={nuevaCanchaForm.nombre}
+                    onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, nombre: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    Precio de la Cancha Completa ($ ARS)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold text-xs sm:text-sm">$</span>
+                    <input
+                      type="number"
+                      min="1"
+                      className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                      value={nuevaCanchaForm.precio}
+                      onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, precio: e.target.value })}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Si se deja vacío, utilizará el precio general del negocio (${config.precio_total || tenantPrecioTotal || 100}).
+                  </p>
+                </div>
+
+                {!isAdmin && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                      Contraseña de Administrador
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                      value={nuevaCanchaForm.password}
+                      onChange={e => setNuevaCanchaForm({ ...nuevaCanchaForm, password: e.target.value })}
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Requerida para autorizar la creación de la cancha.
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={guardandoCancha}
+                    onClick={() => setModalNuevaCancha(false)}
+                    className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={guardandoCancha}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {guardandoCancha ? 'Guardando...' : 'Agregar Cancha'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: ELIMINAR CANCHA */}
+        {modalEliminarCancha && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center text-sm font-black">
+                    ✕
+                  </span>
+                  Eliminar {modalEliminarCancha.nombre}
+                </h3>
+                <button
+                  onClick={() => setModalEliminarCancha(null)}
+                  className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 rounded-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500 mb-4">
+                ¿Estás seguro de que deseás eliminar esta cancha?
+              </p>
+
+              {eliminarError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl mb-4">
+                  {eliminarError}
+                </div>
+              )}
+
+              <form onSubmit={handleEliminarCancha} className="space-y-4">
+                {!isAdmin && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
+                      Contraseña de Administrador
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white text-xs sm:text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                      value={eliminarPassword}
+                      onChange={e => setEliminarPassword(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={eliminandoCancha}
+                    onClick={() => setModalEliminarCancha(null)}
+                    className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={eliminandoCancha}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {eliminandoCancha ? 'Eliminando...' : 'Eliminar Cancha'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 
