@@ -720,7 +720,7 @@ export default function Dashboard() {
 
   // Guardar Configuración
   const guardarConfig = async (e) => {
-    e.preventDefault()
+    if (e && e.preventDefault) e.preventDefault()
     setConfigSaved(false)
     setSavingConfig(true)
 
@@ -732,7 +732,8 @@ export default function Dashboard() {
         direccion: config.direccion,
         monto_sena: Number(config.monto_sena),
         precio_total: Number(config.precio_total),
-        horarios: config.horarios
+        horarios: config.horarios,
+        canchas: canchas
       })
     }
 
@@ -740,7 +741,10 @@ export default function Dashboard() {
       const res = await fetch(`${API_URL}/api/admin/config`, {
         method: 'PUT',
         headers: getAuthHeaders(),
-        body: JSON.stringify(config)
+        body: JSON.stringify({
+          ...config,
+          canchas: canchas
+        })
       })
 
       if (res.ok) {
@@ -751,12 +755,15 @@ export default function Dashboard() {
             ...data.config,
             mp_access_token: config.mp_access_token || prev.mp_access_token
           }))
+          if (data.config.canchas) {
+            setCanchas(data.config.canchas)
+          }
           if (updateLocalConfig) {
             updateLocalConfig(data.config)
           }
         }
         setConfigSaved(true)
-        refreshTenant()
+        if (refreshTenant) refreshTenant()
         alert('¡Cambios guardados correctamente!')
         setTimeout(() => setConfigSaved(false), 4000)
       } else {
@@ -785,24 +792,30 @@ export default function Dashboard() {
       nuevos = ['18:00', '19:00', '20:00', '21:00', '22:00', '23:00', '00:00', '01:00', '02:00', '03:00']
     } else if (preset === 'matutino_tarde') {
       nuevos = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00']
+    } else if (preset === 'todos') {
+      nuevos = [...ALL_POSSIBLE_HOURS]
+    } else if (preset === 'ninguno') {
+      nuevos = ['19:00']
     }
-    setConfig({ ...config, horarios: nuevos })
+    setConfig(prev => ({ ...prev, horarios: nuevos }))
   }
 
   const toggleHorarioSlot = (hora) => {
-    const current = config.horarios || []
-    if (current.includes(hora)) {
-      if (current.length <= 1) {
-        alert('Debe haber al menos 1 horario disponible configurado.')
-        return
+    setConfig(prev => {
+      const current = prev.horarios || []
+      if (current.includes(hora)) {
+        if (current.length <= 1) {
+          alert('Debe haber al menos 1 horario disponible configurado.')
+          return prev
+        }
+        return { ...prev, horarios: current.filter(h => h !== hora) }
+      } else {
+        const updated = [...current, hora].sort(
+          (a, b) => ALL_POSSIBLE_HOURS.indexOf(a) - ALL_POSSIBLE_HOURS.indexOf(b)
+        )
+        return { ...prev, horarios: updated }
       }
-      setConfig({ ...config, horarios: current.filter(h => h !== hora) })
-    } else {
-      const updated = [...current, hora].sort(
-        (a, b) => ALL_POSSIBLE_HOURS.indexOf(a) - ALL_POSSIBLE_HOURS.indexOf(b)
-      )
-      setConfig({ ...config, horarios: updated })
-    }
+    })
   }
 
   // Crear Colaborador
@@ -1035,7 +1048,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-16 overflow-x-hidden w-full max-w-full">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-32 sm:pb-16 overflow-x-hidden w-full max-w-full">
       
       {/* HEADER DASHBOARD RESPONSIVE */}
       <header className="bg-white shadow-sm border-b border-slate-200 px-3 sm:px-6 py-2.5 sm:py-3 sticky top-0 z-20 w-full overflow-hidden">
@@ -2197,24 +2210,41 @@ export default function Dashboard() {
                           </p>
                         </div>
 
-                        <button
-                          type="button"
-                          disabled={isToggling}
-                          onClick={() => toggleDisponibilidadCancha(c.id, isActiva)}
-                          className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 border ${
-                            isActiva
-                              ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
-                              : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm'
-                          } disabled:opacity-50`}
-                        >
-                          {isToggling ? (
-                            'Guardando...'
-                          ) : isActiva ? (
-                            'Pausar Cancha'
-                          ) : (
-                            'Habilitar Cancha'
-                          )}
-                        </button>
+                        <div className="grid grid-cols-2 gap-2 mt-2 pt-3 border-t border-slate-100">
+                          <button
+                            type="button"
+                            disabled={isToggling}
+                            onClick={() => toggleDisponibilidadCancha(c.id, isActiva)}
+                            className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 border min-h-[44px] cursor-pointer ${
+                              isActiva
+                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm shadow-emerald-200'
+                            } disabled:opacity-50`}
+                          >
+                            {isToggling ? (
+                              'Guardando...'
+                            ) : isActiva ? (
+                              '⏸️ Pausar'
+                            ) : (
+                              '▶️ Habilitar'
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCanchaEditandoError('')
+                              setCanchaEditandoForm({
+                                nombre: c.nombre,
+                                precio: c.precio || config.precio_total || tenantPrecioTotal || ''
+                              })
+                              setModalEditarCancha(c)
+                            }}
+                            className="w-full py-2.5 px-3 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all active:scale-95 flex items-center justify-center gap-1.5 border border-slate-200 min-h-[44px] cursor-pointer"
+                          >
+                            ✏️ Editar Precio
+                          </button>
+                        </div>
                       </div>
                     )
                   })}
@@ -2483,114 +2513,266 @@ export default function Dashboard() {
         {/* ======================================================== */}
         {/* PESTAÑA 2: CONFIGURACIÓN DEL NEGOCIO (SOLO ADMIN)       */}
         {/* ======================================================== */}
+        {/* ======================================================== */}
+        {/* PESTAÑA 2: CONFIGURACIÓN DEL NEGOCIO (SOLO ADMIN)       */}
+        {/* ======================================================== */}
         {activeTab === 'config' && isAdmin && (
-          <div className="max-w-3xl mx-auto bg-white p-3.5 sm:p-7 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 animate-fade-in w-full overflow-hidden">
+          <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6 animate-fade-in w-full pb-8">
             
-            <h2 className="text-lg sm:text-2xl font-black text-slate-800 mb-1 flex items-center gap-2">
-              Configuración de {config.nombre || nombreNegocio}
-            </h2>
-            <p className="text-slate-500 text-xs sm:text-sm mb-5">
-              Ajustá datos de contacto, valor de la seña y los horarios de atención y turnos disponibles para tu complejo.
-            </p>
-
-            {configSaved && (
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2.5 rounded-xl mb-5 text-xs sm:text-sm font-semibold animate-fade-in">
-                Configuración guardada correctamente.
+            {/* ENCABEZADO */}
+            <div className="bg-white p-4 sm:p-7 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 flex flex-wrap justify-between items-center gap-3">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-black text-slate-800 flex items-center gap-2">
+                  <span>⚙️</span> Configuración de {config.nombre || nombreNegocio}
+                </h2>
+                <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
+                  Gestioná el nombre de tu complejo, canchas, precios individuales y horarios de turnos para celular y web.
+                </p>
               </div>
-            )}
+
+              {configSaved && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 animate-fade-in">
+                  <span>✓</span> ¡Configuración guardada!
+                </div>
+              )}
+            </div>
 
             <form onSubmit={guardarConfig} className="space-y-4 sm:space-y-6 w-full">
               
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Nombre de la Cancha / Complejo
-                </label>
-                <input
-                  type="text"
-                  className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium text-xs sm:text-base"
-                  value={config.nombre || ''}
-                  onChange={e => setConfig({ ...config, nombre: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Teléfono / WhatsApp de Contacto
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium text-xs sm:text-base"
-                    value={config.telefono || ''}
-                    onChange={e => setConfig({ ...config, telefono: e.target.value })}
-                  />
+              {/* TARJETA 1: DATOS GENERALES DEL COMPLEJO */}
+              <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                  <span className="text-lg">🏢</span>
+                  <h3 className="font-black text-slate-800 text-sm sm:text-base">Información y Contacto del Negocio</h3>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Ubicación / Dirección del Complejo
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                    Nombre del Complejo / Cancha
                   </label>
                   <input
                     type="text"
-                    className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium text-xs sm:text-base"
-                    value={config.direccion || ''}
-                    onChange={e => setConfig({ ...config, direccion: e.target.value })}
+                    className="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-bold text-sm sm:text-base"
+                    value={config.nombre || ''}
+                    onChange={e => setConfig({ ...config, nombre: e.target.value })}
+                    placeholder="Ej: Cancha Los Amigos F5"
+                    required
                   />
                 </div>
-              </div>
 
-              {/* SECCIÓN: CONFIGURACIÓN DE HORARIOS DE ATENCIÓN */}
-              <div className="p-3.5 sm:p-5 rounded-2xl bg-slate-50 border border-slate-200 w-full overflow-hidden">
-                <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Horarios de Atención / Turnos Disponibles
+                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                      Teléfono / WhatsApp de Contacto
                     </label>
-                    <p className="text-[10px] sm:text-xs text-slate-500">
-                      Marcá qué horas están disponibles para reservar en tus canchas.
-                    </p>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium text-sm sm:text-base"
+                      value={config.telefono || ''}
+                      onChange={e => setConfig({ ...config, telefono: e.target.value })}
+                      placeholder="Ej: 3804201334"
+                    />
+                    {config.telefono && (
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Los comprobantes y confirmaciones de los clientes se enviarán a este número.
+                      </p>
+                    )}
                   </div>
 
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                    {(config.horarios || []).length} activos
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                      Dirección / Ubicación
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-medium text-sm sm:text-base"
+                      value={config.direccion || ''}
+                      onChange={e => setConfig({ ...config, direccion: e.target.value })}
+                      placeholder="Ej: Av. San Martín 1234"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* TARJETA 2: GESTIÓN DE CANCHAS Y PRECIOS INDIVIDUALES */}
+              <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 space-y-4">
+                <div className="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">⚽</span>
+                    <div>
+                      <h3 className="font-black text-slate-800 text-sm sm:text-base">Canchas y Precios Individuales</h3>
+                      <p className="text-slate-500 text-[11px] sm:text-xs">
+                        Habilitá, pausá o editá el precio de cada cancha tocando los botones.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCanchaError('')
+                      setNuevaCanchaForm({
+                        nombre: `Cancha ${canchas.length + 1}`,
+                        password: '',
+                        precio: config.precio_total || tenantPrecioTotal || ''
+                      })
+                      setModalNuevaCancha(true)
+                    }}
+                    className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer shadow-xs"
+                  >
+                    <span>+</span> Agregar Cancha
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                  {canchas.map(c => {
+                    const isActiva = c.activa !== false && c.disponible !== false
+                    const isToggling = togglingCanchaId === c.id
+                    const precioActual = Number(c.precio || config.precio_total || tenantPrecioTotal || 100)
+
+                    return (
+                      <div
+                        key={c.id}
+                        className={`p-3.5 sm:p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+                          isActiva
+                            ? 'bg-white border-emerald-200 shadow-xs ring-1 ring-emerald-100'
+                            : 'bg-slate-50 border-slate-200 opacity-90'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start gap-2 mb-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black shrink-0 ${
+                              isActiva ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                            }`}>
+                              {c.id}
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="font-black text-slate-800 text-sm truncate">{c.nombre}</h4>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                  ${precioActual.toLocaleString('es-AR')}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium">por turno</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
+                            isActiva
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border-rose-200'
+                          }`}>
+                            {isActiva ? '🟢 Habilitada' : '🔴 Pausada'}
+                          </span>
+                        </div>
+
+                        {/* ACCIONES TÁCTILES RÁPIDAS */}
+                        <div className="grid grid-cols-2 gap-2 mt-2 pt-2.5 border-t border-slate-100">
+                          <button
+                            type="button"
+                            disabled={isToggling}
+                            onClick={() => toggleDisponibilidadCancha(c.id, isActiva)}
+                            className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1 border min-h-[40px] cursor-pointer ${
+                              isActiva
+                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs'
+                            }`}
+                          >
+                            {isToggling ? 'Guardando...' : isActiva ? '⏸️ Pausar' : '▶️ Habilitar'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCanchaEditandoError('')
+                              setCanchaEditandoForm({
+                                nombre: c.nombre,
+                                precio: c.precio || config.precio_total || tenantPrecioTotal || ''
+                              })
+                              setModalEditarCancha(c)
+                            }}
+                            className="py-2 px-2.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all active:scale-95 flex items-center justify-center gap-1 border border-slate-200 min-h-[40px] cursor-pointer"
+                          >
+                            ✏️ Editar Precio
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* TARJETA 3: HORARIOS DE ATENCIÓN (SELECT TÁCTIL) */}
+              <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 space-y-4">
+                <div className="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🕒</span>
+                    <div>
+                      <h3 className="font-black text-slate-800 text-sm sm:text-base">Horarios de Turnos (Tocar para Habilitar/Deshabilitar)</h3>
+                      <p className="text-slate-500 text-[11px] sm:text-xs">
+                        Tocá cualquier botón de hora para activarla o pausarla instantáneamente.
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
+                    {(config.horarios || []).length} turnos activos
                   </span>
                 </div>
 
-                {/* PRESETS RÁPIDOS */}
-                <div className="flex flex-wrap gap-1 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => aplicarPresetHorarios('tarde_noche')}
-                    className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
-                  >
-                    Tarde/Noche
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => aplicarPresetHorarios('completo')}
-                    className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
-                  >
-                    Completo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => aplicarPresetHorarios('nocturno')}
-                    className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
-                  >
-                    Nocturno
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => aplicarPresetHorarios('matutino_tarde')}
-                    className="bg-white hover:bg-blue-50 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 transition-colors"
-                  >
-                    Día
-                  </button>
+                {/* PRESETS RÁPIDOS PARA CELULAR */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    Accesos Rápidos de Horario:
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => aplicarPresetHorarios('tarde_noche')}
+                      className="bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 text-xs font-bold px-3 py-1.5 rounded-xl border border-slate-200 transition-all active:scale-95 cursor-pointer"
+                    >
+                      🌙 Tarde/Noche (15 a 01hs)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => aplicarPresetHorarios('completo')}
+                      className="bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 text-xs font-bold px-3 py-1.5 rounded-xl border border-slate-200 transition-all active:scale-95 cursor-pointer"
+                    >
+                      ☀️ Todo el Día (08 a 02hs)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => aplicarPresetHorarios('nocturno')}
+                      className="bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 text-xs font-bold px-3 py-1.5 rounded-xl border border-slate-200 transition-all active:scale-95 cursor-pointer"
+                    >
+                      ⚡ Solo Noche (18 a 03hs)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => aplicarPresetHorarios('matutino_tarde')}
+                      className="bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 text-xs font-bold px-3 py-1.5 rounded-xl border border-slate-200 transition-all active:scale-95 cursor-pointer"
+                    >
+                      🌅 Día (09 a 21hs)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => aplicarPresetHorarios('todos')}
+                      className="bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold px-3 py-1.5 rounded-xl border border-blue-200 transition-all active:scale-95 cursor-pointer"
+                    >
+                      ✅ Habilitar Todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => aplicarPresetHorarios('ninguno')}
+                      className="bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold px-3 py-1.5 rounded-xl border border-rose-200 transition-all active:scale-95 cursor-pointer"
+                    >
+                      ⛔ Desmarcar
+                    </button>
+                  </div>
                 </div>
 
-                {/* CHIPS DE HORARIOS ACTIVOS */}
-                <div className="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-8 gap-1.5 sm:gap-2 w-full">
+                {/* BOTONES TÁCTILES DE HORARIOS (OPTIMIZADOS PARA CELULAR) */}
+                <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 w-full pt-1">
                   {ALL_POSSIBLE_HOURS.map(hora => {
                     const isSelected = (config.horarios || []).includes(hora)
                     return (
@@ -2598,102 +2780,153 @@ export default function Dashboard() {
                         key={hora}
                         type="button"
                         onClick={() => toggleHorarioSlot(hora)}
-                        className={`py-2 px-1 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-0.5 active:scale-95 min-h-[36px] w-full truncate ${
+                        title={isSelected ? 'Habilitado (click para desactivar)' : 'Pausado (click para habilitar)'}
+                        className={`py-3 px-1 rounded-2xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center gap-0.5 active:scale-90 min-h-[50px] w-full select-none cursor-pointer border ${
                           isSelected
-                            ? 'bg-blue-600 text-white shadow-sm shadow-blue-200 ring-1 ring-blue-400'
-                            : 'bg-white text-slate-400 hover:text-slate-600 border border-slate-200 hover:border-slate-300'
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-200 ring-2 ring-blue-300 border-blue-600 font-black'
+                            : 'bg-slate-50 text-slate-400 hover:text-slate-600 border-slate-200 hover:border-slate-300'
                         }`}
                       >
-                        {isSelected && <span>✓</span>}
-                        <span>{hora}</span>
+                        <div className="flex items-center gap-1">
+                          {isSelected ? (
+                            <span className="text-[11px] font-black text-blue-200">✓</span>
+                          ) : (
+                            <span className="text-[9px] text-slate-300">✕</span>
+                          )}
+                          <span>{hora}</span>
+                        </div>
+                        <span className={`text-[8px] sm:text-[9px] font-extrabold uppercase tracking-tighter ${
+                          isSelected ? 'text-blue-100' : 'text-slate-300'
+                        }`}>
+                          {isSelected ? 'Activo' : 'Pausado'}
+                        </span>
                       </button>
                     )
                   })}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Precio de la Cancha Completa ($ ARS)
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold">$</span>
-                    <input
-                      type="number"
-                      min="1"
-                      className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-bold text-xs sm:text-base"
-                      value={config.precio_total || ''}
-                      onChange={e => setConfig({ ...config, precio_total: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Valor total del alquiler de la cancha por turno.
-                  </p>
+              {/* TARJETA 4: SEÑA Y PRECIO GENERAL */}
+              <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                  <span className="text-lg">💰</span>
+                  <h3 className="font-black text-slate-800 text-sm sm:text-base">Seña y Precios Generales</h3>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Monto de la Seña por Reserva ($ ARS)
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-2.5 sm:top-3 text-slate-400 font-bold">$</span>
-                    <input
-                      type="number"
-                      min="1"
-                      className="w-full border border-slate-200 pl-7 pr-3 py-2.5 sm:py-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-bold text-xs sm:text-base"
-                      value={config.monto_sena || ''}
-                      onChange={e => setConfig({ ...config, monto_sena: e.target.value })}
-                      required
-                    />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                      Precio Base General de Canchas ($ ARS)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-3 text-slate-400 font-bold">$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        className="w-full border border-slate-200 pl-8 pr-3 py-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-bold text-sm sm:text-base"
+                        value={config.precio_total || ''}
+                        onChange={e => setConfig({ ...config, precio_total: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Precio de referencia para las canchas que no tengan un valor individual asignado.
+                    </p>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Monto que abona el cliente para asegurar y reservar el turno online.
-                  </p>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                      Monto de Seña por Reserva Online ($ ARS)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-3 text-slate-400 font-bold">$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        className="w-full border border-slate-200 pl-8 pr-3 py-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-bold text-sm sm:text-base"
+                        value={config.monto_sena || ''}
+                        onChange={e => setConfig({ ...config, monto_sena: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Monto a abonar mediante Mercado Pago para confirmar el turno.
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100">
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Access Token de Mercado Pago (Privado)
-                </label>
-                <input
-                  type="password"
-                  className="w-full border border-slate-200 p-2.5 sm:p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-mono text-xs"
-                  value={config.mp_access_token || ''}
-                  onChange={e => setConfig({ ...config, mp_access_token: e.target.value })}
-                />
+              {/* TARJETA 5: MERCADO PAGO */}
+              <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                  <span className="text-lg">💳</span>
+                  <h3 className="font-black text-slate-800 text-sm sm:text-base">Credenciales de Cobro (Mercado Pago)</h3>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                    Access Token de Mercado Pago (Privado)
+                  </label>
+                  <input
+                    type="password"
+                    className="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-800 font-mono text-xs"
+                    value={config.mp_access_token || ''}
+                    onChange={e => setConfig({ ...config, mp_access_token: e.target.value })}
+                    placeholder="APP_USR-xxxxxxxxxxxxxxxx"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Token privado para acreditar las señas en tu cuenta bancaria o de Mercado Pago.
+                  </p>
+                </div>
               </div>
 
               {configSaved && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-center text-xs sm:text-sm font-bold animate-fade-in flex items-center justify-center gap-2">
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-2xl text-center text-xs sm:text-sm font-bold animate-fade-in flex items-center justify-center gap-2 shadow-xs">
                   <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  ¡Cambios guardados correctamente!
+                  ¡Configuración y horarios guardados correctamente!
                 </div>
               )}
 
+              {/* BOTÓN PRINCIPAL DE GUARDAR */}
               <button
                 type="submit"
                 disabled={savingConfig}
-                className={`w-full py-3 active:scale-95 text-white font-bold rounded-xl transition-all shadow-sm text-xs sm:text-base flex items-center justify-center gap-2 ${
+                className={`w-full py-3.5 active:scale-95 text-white font-black rounded-2xl transition-all shadow-md text-sm sm:text-base flex items-center justify-center gap-2 cursor-pointer ${
                   configSaved 
-                    ? 'bg-emerald-600 hover:bg-emerald-700' 
-                    : 'bg-blue-600 hover:bg-blue-700'
+                    ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200' 
+                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
                 }`}
               >
                 {savingConfig ? (
                   'Guardando cambios...'
                 ) : configSaved ? (
-                  '✓ ¡Cambios Guardados!'
+                  '✓ ¡Cambios Guardados Exitosamente!'
                 ) : (
-                  'Guardar Configuración y Horarios'
+                  '💾 Guardar Toda la Configuración'
                 )}
               </button>
 
             </form>
+
+            {/* BOTÓN FLOTANTE EN CELULAR PARA GUARDAR RÁPIDO */}
+            <div className="sm:hidden fixed bottom-16 left-0 right-0 z-30 px-4 py-2 pointer-events-none">
+              <button
+                type="button"
+                onClick={guardarConfig}
+                disabled={savingConfig}
+                className="pointer-events-auto w-full py-3 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black rounded-2xl shadow-xl shadow-blue-500/40 flex items-center justify-center gap-2 text-sm border border-blue-400 cursor-pointer"
+              >
+                {savingConfig ? (
+                  'Guardando...'
+                ) : configSaved ? (
+                  '✓ ¡Guardado!'
+                ) : (
+                  '💾 Guardar Cambios'
+                )}
+              </button>
+            </div>
 
           </div>
         )}
@@ -2801,6 +3034,71 @@ export default function Dashboard() {
         )}
 
       </main>
+
+      {/* BARRA DE NAVEGACIÓN INFERIOR FIJA PARA CELULAR (MOBILE-FIRST) */}
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-2xl safe-area-bottom">
+        <button
+          type="button"
+          onClick={() => { setActiveTab('turnos'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+          className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition-all active:scale-95 cursor-pointer ${
+            activeTab === 'turnos' ? 'text-blue-600 font-black' : 'text-slate-400 font-medium'
+          }`}
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={activeTab === 'turnos' ? 2.5 : 2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span className="text-[10px]">Turnos</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setActiveTab('canchas'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+          className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition-all active:scale-95 cursor-pointer ${
+            activeTab === 'canchas' ? 'text-blue-600 font-black' : 'text-slate-400 font-medium'
+          }`}
+        >
+          <div className="relative">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={activeTab === 'canchas' ? 2.5 : 2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="absolute -top-1 -right-2.5 bg-blue-600 text-white text-[9px] font-black rounded-full w-4 h-4 flex items-center justify-center">
+              {canchas.length}
+            </span>
+          </div>
+          <span className="text-[10px]">Canchas</span>
+        </button>
+
+        {isAdmin && (
+          <>
+            <button
+              type="button"
+              onClick={() => { setActiveTab('config'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+              className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition-all active:scale-95 cursor-pointer ${
+                activeTab === 'config' ? 'text-blue-600 font-black' : 'text-slate-400 font-medium'
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={activeTab === 'config' ? 2.5 : 2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={activeTab === 'config' ? 2.5 : 2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span className="text-[10px]">Config</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setActiveTab('colaboradores'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+              className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition-all active:scale-95 cursor-pointer ${
+                activeTab === 'colaboradores' ? 'text-blue-600 font-black' : 'text-slate-400 font-medium'
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={activeTab === 'colaboradores' ? 2.5 : 2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+              <span className="text-[10px]">Equipo</span>
+            </button>
+          </>
+        )}
+      </nav>
 
     </div>
   )

@@ -24,6 +24,7 @@ export default function Success() {
   const [guardadoExitoso, setGuardadoExitoso] = useState(false)
   const [conflicto, setConflicto] = useState(false)
   const [mensajeConflicto, setMensajeConflicto] = useState('')
+  const [errorConfirmacion, setErrorConfirmacion] = useState(null)
   const confirmedRef = useRef(false)
 
   const hasData = nombre && fecha && hora && cancha
@@ -37,42 +38,53 @@ export default function Success() {
   }, [localRedirect])
 
   // Confirmar reserva automáticamente al volver de Mercado Pago con pago aprobado
+  const ejecutarConfirmacion = () => {
+    if (!isApproved || !hasData) return
+    setConfirmando(true)
+    setErrorConfirmacion(null)
+
+    fetch(`${API_URL}/api/confirmar-pago`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payment_id: paymentId,
+        collection_id: searchParams.get('collection_id'),
+        status,
+        collection_status: collectionStatus,
+        nombre,
+        fecha,
+        hora,
+        cancha,
+        external_reference: externalReference,
+        merchant_order_id: searchParams.get('merchant_order_id')
+      })
+    })
+      .then(async res => {
+        const data = await res.json().catch(() => ({}))
+        if (res.ok && data.ok) {
+          setGuardadoExitoso(true)
+          setErrorConfirmacion(null)
+        } else if (data.conflicto) {
+          setConflicto(true)
+          setMensajeConflicto(data.message || 'El turno fue reservado por otro jugador simultáneamente.')
+          setErrorConfirmacion(null)
+        } else {
+          setErrorConfirmacion(data.error || data.message || 'No se pudo confirmar automáticamente en el sistema.')
+        }
+      })
+      .catch(err => {
+        console.error('Error confirmando reserva desde frontend:', err)
+        setErrorConfirmacion('Problema de conexión al asentar la reserva en el sistema.')
+      })
+      .finally(() => {
+        setConfirmando(false)
+      })
+  }
+
   useEffect(() => {
     if (isApproved && hasData && !confirmedRef.current) {
       confirmedRef.current = true
-      setConfirmando(true)
-
-      fetch(`${API_URL}/api/confirmar-pago`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          payment_id: paymentId,
-          collection_id: searchParams.get('collection_id'),
-          status,
-          collection_status: collectionStatus,
-          nombre,
-          fecha,
-          hora,
-          cancha,
-          external_reference: externalReference,
-          merchant_order_id: searchParams.get('merchant_order_id')
-        })
-      })
-        .then(async res => {
-          const data = await res.json()
-          if (res.ok && data.ok) {
-            setGuardadoExitoso(true)
-          } else if (data.conflicto) {
-            setConflicto(true)
-            setMensajeConflicto(data.message || 'El turno fue reservado por otro jugador simultáneamente.')
-          }
-        })
-        .catch(err => {
-          console.error('Error confirmando reserva desde frontend:', err)
-        })
-        .finally(() => {
-          setConfirmando(false)
-        })
+      ejecutarConfirmacion()
     }
   }, [isApproved, hasData, paymentId, status, collectionStatus, nombre, fecha, hora, cancha, externalReference])
 
@@ -225,6 +237,20 @@ export default function Success() {
                 <div className="mt-3 pt-3 border-t border-slate-200/60 text-xs text-blue-600 flex items-center gap-1.5 font-medium">
                   <div className="w-3 h-3 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></div>
                   Confirmando y guardando en el sistema de turnos...
+                </div>
+              )}
+
+              {errorConfirmacion && (
+                <div className="mt-3 pt-3 border-t border-slate-200/60 text-xs text-rose-600 text-left bg-rose-50 p-3 rounded-xl border border-rose-200">
+                  <p className="font-bold mb-1">Aviso de registro:</p>
+                  <p className="mb-2 leading-relaxed">{errorConfirmacion}</p>
+                  <button
+                    type="button"
+                    onClick={ejecutarConfirmacion}
+                    className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-all shadow-xs"
+                  >
+                    Reintentar confirmación
+                  </button>
                 </div>
               )}
             </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { getDiaTexto, isFechaDentroDeSemana, isHoraInvalida } from '../utils/dateUtils'
+import { getDiaTexto, isFechaDentroDeSemana, isHoraInvalida, todayISO, maxWeekISO } from '../utils/dateUtils'
 import { useTenant } from '../context/TenantContext'
 import SelectorCancha from './SelectorCancha'
 import Calendario from './Calendario'
@@ -36,10 +36,8 @@ export default function ReservaTurno() {
   // Cargar turnos ocupados
   const fetchTurnosOcupados = useCallback(async () => {
     try {
-      const hoy = new Date().toISOString().split('T')[0]
-      const enSieteDias = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split('T')[0]
+      const hoy = todayISO()
+      const enSieteDias = maxWeekISO()
 
       const res = await fetch(`${API_URL}/api/turnos-ocupados?desde=${hoy}&hasta=${enSieteDias}`)
       if (!res.ok) throw new Error('Error al cargar disponibilidad')
@@ -100,7 +98,7 @@ export default function ReservaTurno() {
     }
 
     if (isHoraInvalida(form.fecha, form.hora)) {
-      return alert('Debes reservar con al menos 2 horas de anticipación')
+      return alert('Debes reservar con al menos 1 hora de anticipación')
     }
 
     const slotOcupado = reservas.find(r => r.fecha === form.fecha && r.hora === form.hora && String(r.cancha) === String(form.cancha))

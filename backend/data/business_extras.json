@@ -3,20 +3,18 @@
     {
       "id": "1",
       "nombre": "Cancha 1",
-      "activa": true
+      "activa": true,
+      "precio": 28000
     },
     {
       "id": "2",
       "nombre": "Cancha 2",
-      "activa": true
-    },
-    {
-      "id": "3",
-      "nombre": "Cancha 3",
-      "activa": true
+      "activa": true,
+      "precio": 25000
     }
   ],
   "horarios": [
+    "07:00",
     "08:00",
     "09:00",
     "10:00",
@@ -35,6 +33,7 @@
     "23:00",
     "00:00",
     "01:00",
-    "02:00"
+    "02:00",
+    "03:00"
   ]
 }

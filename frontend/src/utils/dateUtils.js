@@ -100,10 +100,13 @@ export const getCalendarDays = (baseDate = new Date()) => {
 
 export const buildSelectionDate = (fecha, hora) => {
   const [year, month, day] = fecha.split('-').map(Number)
-  const [hh] = hora.split(':')
-  const hour = Number(hh)
+  const [hh, mm = 0] = (hora || '00:00').split(':').map(Number)
+  // En turnos deportivos nocturnos, las horas de madrugada (ej: 00:00, 01:00, 02:00)
+  // corresponden a la trasnoche del día seleccionado (día calendario siguiente)
+  const isMadrugada = hh < 6
+  const targetDay = isMadrugada ? day + 1 : day
 
-  return new Date(year, month - 1, day, hour, 0, 0, 0)
+  return new Date(year, month - 1, targetDay, hh, mm, 0, 0)
 }
 
 export const isHoraInvalida = (fecha, hora) => {

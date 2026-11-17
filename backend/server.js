@@ -431,10 +431,33 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
   let holdRowId = null
   try {
     const { nombre, fecha, hora, cancha } = req.body
-    const canchaFinal = cancha || '1'
+    const canchaFinal = String(cancha || '1')
 
     if (!nombre || !fecha || !hora) {
       return res.status(400).json({ error: 'Datos incompletos' })
+    }
+
+    const trimmedNombre = String(nombre).trim()
+    if (trimmedNombre.length < 2 || trimmedNombre.length > 80) {
+      return res.status(400).json({ error: 'El nombre debe tener entre 2 y 80 caracteres' })
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fecha))) {
+      return res.status(400).json({ error: 'Formato de fecha inválido (debe ser YYYY-MM-DD)' })
+    }
+
+    if (!/^\d{2}:\d{2}$/.test(String(hora))) {
+      return res.status(400).json({ error: 'Formato de hora inválido (debe ser HH:mm)' })
+    }
+
+    // Validar que la fecha y hora no correspondan al pasado
+    const [year, month, day] = fecha.split('-').map(Number)
+    const [hh, mm = 0] = hora.split(':').map(Number)
+    const isMadrugada = hh < 6
+    const targetDay = isMadrugada ? day + 1 : day
+    const fechaTurno = new Date(year, month - 1, targetDay, hh, mm, 0, 0)
+    if (fechaTurno.getTime() < Date.now()) {
+      return res.status(400).json({ error: 'No se puede reservar un turno en un horario que ya pasó' })
     }
 
     // Limpiar holds expirados previamente
@@ -674,8 +697,17 @@ app.post(['/api/webhook', '/webhook'], async (req, res) => {
 
     let mpPayment = null
     try {
-      const defaultClient = getMPClient(DEFAULT_MP_ACCESS_TOKEN)
-      const payment = new Payment(defaultClient)
+      let mpToken = DEFAULT_MP_ACCESS_TOKEN
+      const { data: neg } = await supabase
+        .from('negocios')
+        .select('mp_access_token')
+        .limit(1)
+        .maybeSingle()
+      if (neg?.mp_access_token) {
+        mpToken = neg.mp_access_token
+      }
+      const client = getMPClient(mpToken)
+      const payment = new Payment(client)
       mpPayment = await payment.get({ id: paymentId })
     } catch (mpErr) {
       console.warn('⚠️ No se pudo consultar payment.get en MP:', mpErr.message)
@@ -1577,7 +1609,7 @@ app.get(['/api/admin/config', '/admin/config'], verifyAuth, requireAdmin, async 
 })
 
 app.put(['/api/admin/config', '/admin/config'], verifyAuth, requireAdmin, async (req, res) => {
-  const { nombre, monto_sena, precio_total, telefono, direccion, horarios, mp_access_token } = req.body
+  const { nombre, monto_sena, precio_total, telefono, direccion, horarios, canchas, mp_access_token } = req.body
 
   try {
     const updateData = {}
@@ -1592,10 +1624,20 @@ app.put(['/api/admin/config', '/admin/config'], verifyAuth, requireAdmin, async 
       saveBusinessExtras({ horarios: normalizarHorarios(horarios) })
     }
 
+    if (canchas !== undefined) {
+      saveBusinessExtras({ canchas: normalizarCanchas(canchas) })
+    }
+
     let { data: existingNeg } = await supabase.from('negocios').select('id').limit(1).maybeSingle()
     let savedNegocio = null
 
     if (existingNeg?.id) {
+      if (canchas !== undefined) {
+        try {
+          updateData.canchas = normalizarCanchas(canchas)
+        } catch (e) {}
+      }
+
       const { data, error } = await supabase
         .from('negocios')
         .update(updateData)
