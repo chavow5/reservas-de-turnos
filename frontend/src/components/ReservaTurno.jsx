@@ -15,6 +15,7 @@ export default function ReservaTurno() {
   const [reservas, setReservas] = useState([])
   const [form, setForm] = useState({
     nombre: '',
+    telefono: '',
     cancha: canchasActivas[0]?.id || '1',
     fecha: '',
     hora: ''
@@ -89,8 +90,13 @@ export default function ReservaTurno() {
     e.preventDefault()
     setDbError(null)
 
-    if (!form.nombre || !form.fecha || !form.hora) {
-      return alert('Complete todos los campos')
+    if (!form.nombre || !form.telefono || !form.fecha || !form.hora) {
+      return alert('Complete todos los campos, incluyendo tu número de teléfono')
+    }
+
+    const digitosTelefono = String(form.telefono).replace(/\D/g, '')
+    if (digitosTelefono.length < 6) {
+      return alert('Por favor ingresá un número de teléfono válido para poder comunicarnos con vos')
     }
 
     if (!isFechaDentroDeSemana(form.fecha)) {
@@ -117,7 +123,8 @@ export default function ReservaTurno() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          nombre: form.nombre,
+          nombre: form.nombre.trim(),
+          telefono: form.telefono.trim(),
           cancha: form.cancha,
           fecha: form.fecha,
           hora: form.hora
@@ -241,33 +248,71 @@ export default function ReservaTurno() {
             <h2 className="text-2xl sm:text-3xl font-black text-gray-800">
               Sistema de Reserva en {nombreNegocio}
             </h2>
-            {(direccion || telefono) && (
-              <p className="text-xs sm:text-sm text-slate-500 mt-1 flex flex-wrap items-center justify-center sm:justify-start gap-x-3 gap-y-1">
-                {direccion && <span>{direccion}</span>}
-                {telefono && (
-                  <a
-                    href={`https://wa.me/${telefono.replace(/\D/g, '')}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-emerald-600 font-semibold hover:underline"
-                  >
-                    WhatsApp: {telefono}
-                  </a>
-                )}
-              </p>
-            )}
+            {(direccion || telefono) && (() => {
+              const digits = String(telefono || '').replace(/\D/g, '').replace(/^0+/, '')
+              const waPhone = digits.length === 10 ? `549${digits}` : digits
+              return (
+                <div className="text-xs sm:text-sm text-slate-500 mt-2 flex flex-wrap items-center justify-center sm:justify-start gap-x-3 gap-y-1.5">
+                  {direccion && (
+                    <span className="inline-flex items-center gap-1">
+                      📍 {direccion}
+                    </span>
+                  )}
+                  {telefono && (
+                    <div className="inline-flex items-center gap-2">
+                      <a
+                        href={`https://wa.me/${waPhone}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-emerald-600 font-bold bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition-colors"
+                      >
+                        💬 WhatsApp: {telefono}
+                      </a>
+                      {/* <a
+                        href={`tel:${telefono.replace(/[^\d+]/g, '')}`}
+                        className="inline-flex items-center gap-1 text-blue-600 font-bold bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors"
+                      >
+                        📞 Llamar
+                      </a> */}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </div>
 
-          <div className="mb-6">
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              Turno a Nombre de:
-            </label>
-            <input
-              className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none transition-all"
-              value={form.nombre}
-              onChange={handleChange('nombre')}
-              required
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Turno a Nombre de:
+              </label>
+              <input
+                type="text"
+                placeholder=""
+                className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none transition-all"
+                value={form.nombre}
+                onChange={handleChange('nombre')}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Teléfono / WhatsApp de Contacto:
+              </label>
+              <input
+                type="tel"
+                placeholder=" 3804123456"
+                className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none transition-all"
+                value={form.telefono}
+                onChange={handleChange('telefono')}
+                required
+              />
+            </div>
+
+            {/* <p className="sm:col-span-2 text-xs text-slate-500 -mt-1">
+              📱 Te pedimos un número de contacto para poder llamarte o escribirte por WhatsApp si surge algún imprevisto con la cancha o el clima.
+            </p> */}
           </div>
 
           <SelectorCancha 
@@ -332,7 +377,7 @@ export default function ReservaTurno() {
 
           <button
             type="submit"
-            disabled={loading || !form.nombre || !form.fecha || !form.hora}
+            disabled={loading || !form.nombre || !form.telefono || !form.fecha || !form.hora}
             className="w-full py-3.5 rounded-xl text-white font-bold text-lg shadow-sm transition-all active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none bg-blue-600 hover:bg-blue-700 shadow-blue-200"
           >
             {loading ? (

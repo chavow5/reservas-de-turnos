@@ -9,6 +9,7 @@ export default function Success() {
   const { nombreNegocio, telefono } = useTenant()
 
   const nombre = searchParams.get('nombre')
+  const telefonoJugador = searchParams.get('telefono') || ''
   const fecha = searchParams.get('fecha')
   const hora = searchParams.get('hora')
   const cancha = searchParams.get('cancha')
@@ -52,6 +53,7 @@ export default function Success() {
         status,
         collection_status: collectionStatus,
         nombre,
+        telefono: telefonoJugador,
         fecha,
         hora,
         cancha,
@@ -89,14 +91,16 @@ export default function Success() {
   }, [isApproved, hasData, paymentId, status, collectionStatus, nombre, fecha, hora, cancha, externalReference])
 
   // Número de WhatsApp dinámico del negocio
-  const whatsappNumber = telefono || '5493804201334'
+  const rawNegocioDigits = String(telefono || '5493804201334').replace(/\D/g, '').replace(/^0+/, '')
+  const whatsappNumber = rawNegocioDigits.length === 10 ? `549${rawNegocioDigits}` : (rawNegocioDigits || '5493804201334')
 
   const formattedDate = fecha ? fecha.split('-').reverse().join('/') : ''
+  const telefonoText = telefonoJugador ? `\n- *Teléfono:* ${telefonoJugador}` : ''
   const paymentProofText = paymentId ? `\n- *Comprobante MP:* #${paymentId}` : ''
   const baseMessage = conflicto
-    ? `*¡Hola! Tuve una coincidencia simultánea de turno al reservar en ${nombreNegocio}:*\n\n- *Nombre:* ${nombre}\n- *Fecha:* ${formattedDate}\n- *Hora:* ${hora} hs\n- *Cancha:* Cancha ${cancha}${paymentProofText}\n\nPor favor contáctenme para coordinar otro horario o gestionar la devolución de la seña.`
+    ? `*¡Hola! Tuve una coincidencia simultánea de turno al reservar en ${nombreNegocio}:*\n\n- *Nombre:* ${nombre}${telefonoText}\n- *Fecha:* ${formattedDate}\n- *Hora:* ${hora} hs\n- *Cancha:* Cancha ${cancha}${paymentProofText}\n\nPor favor contáctenme para coordinar otro horario o gestionar la devolución de la seña.`
     : hasData
-      ? `*¡Hola! Paso a confirmar mi reserva en ${nombreNegocio}:*\n\n- *Nombre:* ${nombre}\n- *Fecha:* ${formattedDate}\n- *Hora:* ${hora} hs\n- *Cancha:* Cancha ${cancha}${paymentProofText}`
+      ? `*¡Hola! Paso a confirmar mi reserva en ${nombreNegocio}:*\n\n- *Nombre:* ${nombre}${telefonoText}\n- *Fecha:* ${formattedDate}\n- *Hora:* ${hora} hs\n- *Cancha:* Cancha ${cancha}${paymentProofText}`
       : `*Hola, quiero consultar por una reserva en ${nombreNegocio}.*`
 
   const whatsappText = encodeURIComponent(baseMessage)
@@ -208,6 +212,15 @@ export default function Success() {
                     <p className="text-slate-800 font-bold text-lg">{nombre}</p>
                   </div>
                 </div>
+
+                {telefonoJugador && (
+                  <div className="flex items-center">
+                    <div>
+                      <p className="text-xs text-slate-500 font-semibold">Teléfono de Contacto</p>
+                      <p className="text-slate-800 font-bold">{telefonoJugador}</p>
+                    </div>
+                  </div>
+                )}
                 
                 <div className="flex items-center">
                   <div>

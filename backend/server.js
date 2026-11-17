@@ -176,6 +176,32 @@ const getMPClient = (customAccessToken) => {
   return new MercadoPagoConfig({ accessToken: token })
 }
 
+// Helpers para persistir y desempaquetar el teléfono del jugador de forma resiliente
+// (Funciona tanto si la columna `telefono` existe en Supabase como si aún no fue migrada)
+export const packNombreConTelefono = (nombre, telefono) => {
+  const cleanNombre = String(nombre || '').replace(/\s*\[tel:[^\]]*\]/gi, '').trim()
+  const cleanTel = String(telefono || '').trim()
+  if (!cleanTel) return cleanNombre
+  return `${cleanNombre} [tel:${cleanTel}]`
+}
+
+export const unpackReservaTelefono = (row) => {
+  if (!row) return row
+  const rawNombre = String(row.nombre || '')
+  const match = rawNombre.match(/\s*\[tel:([^\]]*)\]/i)
+  const extractedTel = match ? match[1].trim() : ''
+  const cleanNombre = rawNombre.replace(/\s*\[tel:[^\]]*\]/gi, '').trim()
+  const finalTelefono = (row.telefono !== undefined && row.telefono !== null && String(row.telefono).trim() !== '')
+    ? String(row.telefono).trim()
+    : extractedTel
+
+  return {
+    ...row,
+    nombre: cleanNombre,
+    telefono: finalTelefono
+  }
+}
+
 // ============================
 // GESTIÓN DE HOLDS (BLOQUEO TEMPORAL DE 3 MINUTOS)
 // ============================
@@ -430,17 +456,19 @@ app.get(['/api/turnos-ocupados', '/turnos-ocupados'], async (req, res) => {
 app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
   let holdRowId = null
   try {
-    const { nombre, fecha, hora, cancha } = req.body
+    const { nombre, telefono, fecha, hora, cancha } = req.body
     const canchaFinal = String(cancha || '1')
 
     if (!nombre || !fecha || !hora) {
       return res.status(400).json({ error: 'Datos incompletos' })
     }
 
-    const trimmedNombre = String(nombre).trim()
+    const trimmedNombre = String(nombre).replace(/\s*\[tel:[^\]]*\]/gi, '').trim()
     if (trimmedNombre.length < 2 || trimmedNombre.length > 80) {
       return res.status(400).json({ error: 'El nombre debe tener entre 2 y 80 caracteres' })
     }
+
+    const trimmedTelefono = String(telefono || '').trim()
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fecha))) {
       return res.status(400).json({ error: 'Formato de fecha inválido (debe ser YYYY-MM-DD)' })
@@ -528,7 +556,7 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
     const { data: insertedHold, error: holdError } = await supabase
       .from('reservas')
       .insert([{
-        nombre: `[En proceso de pago] ${nombre}`,
+        nombre: `[En proceso de pago] ${packNombreConTelefono(trimmedNombre, trimmedTelefono)}`,
         fecha,
         hora,
         cancha: canchaFinal,
@@ -590,7 +618,8 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
     }
 
     const localRedirectParam = isLocalOrigin ? `&local_redirect=${localPort}` : ''
-    const successUrl = `${baseUrl}/success?nombre=${encodeURIComponent(nombre)}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}&external_reference=${externalReference}${localRedirectParam}`
+    const telParam = trimmedTelefono ? `&telefono=${encodeURIComponent(trimmedTelefono)}` : ''
+    const successUrl = `${baseUrl}/success?nombre=${encodeURIComponent(trimmedNombre)}${telParam}&fecha=${fecha}&hora=${hora}&cancha=${canchaFinal}&external_reference=${externalReference}${localRedirectParam}`
 
     let notificationUrl = process.env.WEBHOOK_URL || (process.env.BACKEND_URL ? `${process.env.BACKEND_URL.replace(/\/$/, '')}/webhook` : 'https://reservas-de-turnos.onrender.com/webhook')
     if (!notificationUrl.startsWith('https://')) {
@@ -619,7 +648,8 @@ app.post(['/api/create-preference', '/create-preference'], async (req, res) => {
       },
       statement_descriptor: 'Reserva Cancha',
       metadata: {
-        nombre,
+        nombre: trimmedNombre,
+        telefono: trimmedTelefono,
         cancha: canchaFinal,
         fecha,
         hora,
@@ -722,7 +752,7 @@ app.post(['/api/webhook', '/webhook'], async (req, res) => {
       return res.sendStatus(200)
     }
 
-    const { nombre, fecha, hora, cancha, monto_sena, external_reference, hold_id } = mpPayment.metadata || {}
+    const { nombre, telefono, fecha, hora, cancha, monto_sena, external_reference, hold_id } = mpPayment.metadata || {}
     const canchaFinal = cancha || '1'
     const externalRef = external_reference || mpPayment.external_reference
 
@@ -753,10 +783,13 @@ app.post(['/api/webhook', '/webhook'], async (req, res) => {
     ) || (hold_id ? existingSlots?.find(s => s.id === hold_id) : null)
 
     if (holdSlot) {
+      const unpackedHold = unpackReservaTelefono(holdSlot)
+      const cleanHoldNombre = unpackedHold.nombre.replace(/^\[En proceso de pago\]\s*/, '')
+      const finalTel = telefono || unpackedHold.telefono || ''
       const { error: updateErr } = await supabase
         .from('reservas')
         .update({
-          nombre: nombre || holdSlot.nombre.replace(/^\[En proceso de pago\]\s*/, ''),
+          nombre: packNombreConTelefono(nombre || cleanHoldNombre, finalTel),
           pagado: true,
           estado_pago: 'señado',
           monto_pagado: monto_sena || mpPayment.transaction_amount || 100,
@@ -782,7 +815,7 @@ app.post(['/api/webhook', '/webhook'], async (req, res) => {
     if (confirmedSlot) {
       console.error('🚨 ALERTA: Doble reserva detectada en webhook. Ya existía reserva:', confirmedSlot.id, 'Nuevo pago:', paymentId)
       await supabase.from('reservas').insert([{
-        nombre: `[CONFLICTO PAGO DUPLICADO] ${nombre}`,
+        nombre: packNombreConTelefono(`[CONFLICTO PAGO DUPLICADO] ${nombre}`, telefono),
         fecha,
         hora,
         cancha: canchaFinal,
@@ -799,7 +832,7 @@ app.post(['/api/webhook', '/webhook'], async (req, res) => {
       .from('reservas')
       .insert([
         {
-          nombre,
+          nombre: packNombreConTelefono(nombre, telefono),
           fecha,
           hora,
           cancha: canchaFinal,
@@ -833,6 +866,7 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
       status,
       collection_status,
       nombre,
+      telefono,
       fecha,
       hora,
       cancha,
@@ -862,7 +896,7 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
 
       if (existingByPid && existingByPid.length > 0) {
         console.log('✅ Pago ya registrado previamente (idempotente):', pid)
-        return res.json({ ok: true, ya_registrada: true, reserva: existingByPid[0] })
+        return res.json({ ok: true, ya_registrada: true, reserva: unpackReservaTelefono(existingByPid[0]) })
       }
     }
 
@@ -896,10 +930,12 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
     )
 
     if (holdSlot) {
+      const unpackedHold = unpackReservaTelefono(holdSlot)
+      const finalTel = telefono || unpackedHold.telefono || ''
       const { data: updated, error: updErr } = await supabase
         .from('reservas')
         .update({
-          nombre: String(nombre).trim(),
+          nombre: packNombreConTelefono(String(nombre).trim(), finalTel),
           pagado: true,
           estado_pago: 'señado',
           monto_pagado: montoSena,
@@ -910,7 +946,7 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
 
       if (!updErr && updated?.[0]) {
         console.log('🎉 Hold convertido a reserva confirmada vía confirmar-pago:', updated[0].id)
-        return res.json({ ok: true, reserva: updated[0] })
+        return res.json({ ok: true, reserva: unpackReservaTelefono(updated[0]) })
       }
     }
 
@@ -932,7 +968,7 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
 
       // Registrar el pago duplicado para que el administrador lo vea inmediatamente en su panel
       await supabase.from('reservas').insert([{
-        nombre: `[CONFLICTO PAGO DUPLICADO] ${nombre}`,
+        nombre: packNombreConTelefono(`[CONFLICTO PAGO DUPLICADO] ${nombre}`, telefono),
         fecha,
         hora,
         cancha: canchaFinal,
@@ -949,6 +985,7 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
         message: 'El turno ya fue asignado a otro jugador simultáneamente.',
         payment_id: pid,
         nombre,
+        telefono: telefono || '',
         fecha,
         hora,
         cancha: canchaFinal
@@ -957,7 +994,7 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
 
     // 3. Si no existía ni hold ni reserva previa, insertar nueva reserva
     const nuevaReserva = {
-      nombre: String(nombre).trim(),
+      nombre: packNombreConTelefono(String(nombre).trim(), telefono),
       fecha,
       hora,
       cancha: canchaFinal,
@@ -978,7 +1015,7 @@ app.post(['/api/confirmar-pago', '/confirmar-pago'], async (req, res) => {
     }
 
     console.log('🎉 Reserva online Mercado Pago confirmada y guardada con éxito:', inserted?.[0]?.id)
-    return res.json({ ok: true, reserva: inserted?.[0] })
+    return res.json({ ok: true, reserva: unpackReservaTelefono(inserted?.[0]) })
   } catch (error) {
     console.error('❌ Error en /api/confirmar-pago:', error)
     return res.status(500).json({ error: error.message || 'Error confirmando el pago' })
@@ -1120,10 +1157,12 @@ app.get(['/api/admin/reservas', '/admin/reservas'], verifyAuth, async (req, res)
           }
         }
 
+        const unpacked = unpackReservaTelefono(r)
+
         return {
-          ...r,
-          estado_pago: r.estado_pago || (r.pagado ? 'pagado' : 'sin_pago'),
-          monto_pagado: r.monto_pagado !== undefined ? r.monto_pagado : (r.pagado ? 100 : 0),
+          ...unpacked,
+          estado_pago: unpacked.estado_pago || (unpacked.pagado ? 'pagado' : 'sin_pago'),
+          monto_pagado: unpacked.monto_pagado !== undefined ? unpacked.monto_pagado : (unpacked.pagado ? 100 : 0),
           creado_por: creadoPor
         }
       })
@@ -1137,10 +1176,11 @@ app.get(['/api/admin/reservas', '/admin/reservas'], verifyAuth, async (req, res)
 
 // POST — Crear reserva manual
 app.post(['/api/admin/reservas', '/admin/reservas'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
-  const { nombre, fecha, hora, cancha, pagado, estado_pago, monto_pagado } = req.body
+  const { nombre, telefono, fecha, hora, cancha, pagado, estado_pago, monto_pagado } = req.body
   const canchaFinal = cancha || '1'
   const finalEstadoPago = estado_pago || (pagado ? 'pagado' : 'sin_pago')
   const finalPagado = ['pagado', 'señado'].includes(finalEstadoPago)
+  const packedNombre = packNombreConTelefono(nombre, telefono)
 
   try {
     const { data: existing, error: errCheck } = await supabase
@@ -1168,7 +1208,7 @@ app.post(['/api/admin/reservas', '/admin/reservas'], verifyAuth, requireColabora
     const { data: insData, error: insertError } = await supabase
       .from('reservas')
       .insert([{
-        nombre,
+        nombre: packedNombre,
         fecha,
         hora,
         cancha: canchaFinal,
@@ -1186,7 +1226,7 @@ app.post(['/api/admin/reservas', '/admin/reservas'], verifyAuth, requireColabora
       const { data: insFallback, error: errFallback } = await supabase
         .from('reservas')
         .insert([{
-          nombre,
+          nombre: packedNombre,
           fecha,
           hora,
           cancha: canchaFinal,
@@ -1201,7 +1241,7 @@ app.post(['/api/admin/reservas', '/admin/reservas'], verifyAuth, requireColabora
       if (errFallback) {
         console.error('Error insertando fallback reserva admin:', errFallback)
         await supabase.from('reservas').insert([{
-          nombre,
+          nombre: packedNombre,
           fecha,
           hora,
           cancha: canchaFinal,
@@ -1211,7 +1251,7 @@ app.post(['/api/admin/reservas', '/admin/reservas'], verifyAuth, requireColabora
       }
 
       inserted = insFallback || {
-        nombre,
+        nombre: packedNombre,
         fecha,
         hora,
         cancha: canchaFinal,
@@ -1229,7 +1269,7 @@ app.post(['/api/admin/reservas', '/admin/reservas'], verifyAuth, requireColabora
       inserted.creado_por = usuarioCreador
     }
 
-    res.json({ ok: true, reserva: inserted })
+    res.json({ ok: true, reserva: unpackReservaTelefono(inserted) })
   } catch (err) {
     console.error('Error en POST /admin/reservas:', err)
     res.status(500).json({ error: 'Error al crear reserva' })
@@ -1239,7 +1279,7 @@ app.post(['/api/admin/reservas', '/admin/reservas'], verifyAuth, requireColabora
 // PUT — Actualizar reserva
 app.put(['/api/admin/reservas/:id', '/admin/reservas/:id'], verifyAuth, requireColaboradorOrAdmin, async (req, res) => {
   const { id } = req.params
-  const { nombre, fecha, hora, cancha, pagado, estado_pago, monto_pagado } = req.body
+  const { nombre, telefono, fecha, hora, cancha, pagado, estado_pago, monto_pagado } = req.body
   const canchaFinal = cancha || '1'
   const finalEstadoPago = estado_pago || (pagado ? 'pagado' : 'sin_pago')
   const finalPagado = ['pagado', 'señado'].includes(finalEstadoPago)
@@ -1260,17 +1300,22 @@ app.put(['/api/admin/reservas/:id', '/admin/reservas/:id'], verifyAuth, requireC
       }
     }
 
+    const updatePayload = {
+      pagado: finalPagado,
+      estado_pago: finalEstadoPago
+    }
+
+    if (nombre !== undefined) {
+      updatePayload.nombre = packNombreConTelefono(nombre, telefono)
+    }
+    if (fecha !== undefined) updatePayload.fecha = fecha
+    if (hora !== undefined) updatePayload.hora = hora
+    if (cancha !== undefined) updatePayload.cancha = canchaFinal
+    if (monto_pagado !== undefined) updatePayload.monto_pagado = monto_pagado || 0
+
     const { error } = await supabase
       .from('reservas')
-      .update({
-        nombre,
-        fecha,
-        hora,
-        cancha: canchaFinal,
-        pagado: finalPagado,
-        estado_pago: finalEstadoPago,
-        monto_pagado: monto_pagado || 0
-      })
+      .update(updatePayload)
       .eq('id', id)
 
     if (error) {

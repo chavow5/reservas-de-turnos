@@ -193,6 +193,55 @@ test('12. /api/confirmar-pago detecta colisiones de doble reserva simultánea (4
   await sb.from('reservas').delete().eq('payment_id', `conflict_${dummyPid}`)
 })
 
+test('13. Crear, editar y listar reserva con número de teléfono de contacto', async () => {
+  const testFecha = '2026-12-31'
+  const testHora = '23:00'
+  const testCancha = '1'
+
+  const resCreate = await fetch(`${API_URL}/api/admin/reservas`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${tokenAdmin}`
+    },
+    body: JSON.stringify({
+      nombre: 'Jugador Test Tel',
+      telefono: '3804556677',
+      fecha: testFecha,
+      hora: testHora,
+      cancha: testCancha,
+      estado_pago: 'señado',
+      monto_pagado: 100
+    })
+  })
+
+  assert.equal(resCreate.status, 200)
+  const createdData = await resCreate.json()
+  assert.equal(createdData.ok, true)
+  assert.equal(createdData.reserva.nombre, 'Jugador Test Tel')
+  assert.equal(createdData.reserva.telefono, '3804556677')
+
+  const reservaId = createdData.reserva.id
+
+  // Verificar que al listar aparece con nombre limpio y teléfono separado
+  const resList = await fetch(`${API_URL}/api/admin/reservas`, {
+    headers: { Authorization: `Bearer ${tokenAdmin}` }
+  })
+  const listData = await resList.json()
+  const encontrada = listData.find(r => r.id === reservaId)
+  assert.ok(encontrada, 'Debe encontrarse la reserva creada')
+  assert.equal(encontrada.nombre, 'Jugador Test Tel')
+  assert.equal(encontrada.telefono, '3804556677')
+
+  // Limpiar reserva de prueba
+  if (reservaId) {
+    await fetch(`${API_URL}/api/admin/reservas/${reservaId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokenAdmin}` }
+    })
+  }
+})
+
 test.after(() => {
   if (server && server.close) {
     server.close()

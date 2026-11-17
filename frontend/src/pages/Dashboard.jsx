@@ -300,6 +300,9 @@ export default function Dashboard() {
   })
   const [configSaved, setConfigSaved] = useState(false)
   const [savingConfig, setSavingConfig] = useState(false)
+  const [editandoSenaRapida, setEditandoSenaRapida] = useState(false)
+  const [nuevaSenaValor, setNuevaSenaValor] = useState('')
+  const [guardandoSenaRapida, setGuardandoSenaRapida] = useState(false)
 
   // Colaboradores (Admin)
   const [colaboradores, setColaboradores] = useState([])
@@ -356,6 +359,7 @@ export default function Dashboard() {
       const data = await res.json()
       const normalized = (data || []).map(r => ({
         ...r,
+        telefono: r.telefono || '',
         cancha: r.cancha ?? '1',
         estado_pago: r.estado_pago || (r.pagado ? 'pagado' : 'sin_pago'),
         creado_por: r.creado_por || (r.payment_id && String(r.payment_id).startsWith('manual_') ? 'Admin (Manual)' : 'Cliente (Online)')
@@ -607,6 +611,33 @@ export default function Dashboard() {
     return `${diaTexto} - ${horaTexto}hs`
   }
 
+  // Helper para generar enlaces directos de WhatsApp y llamada telefónica al jugador
+  const obtenerLinksContactoJugador = (r) => {
+    const rawTel = String(r?.telefono || '').trim()
+    const soloDigitos = rawTel.replace(/\D/g, '').replace(/^0+/, '')
+    if (!soloDigitos) {
+      return { tieneTelefono: false, telefonoTexto: '', waUrl: '', telUrl: '' }
+    }
+
+    const waPhone = soloDigitos.length === 10
+      ? `549${soloDigitos}`
+      : (soloDigitos.length === 12 && soloDigitos.startsWith('54') && !soloDigitos.startsWith('549'))
+        ? `549${soloDigitos.slice(2)}`
+        : soloDigitos
+
+    const nombreCancha = canchas.find(c => String(c.id) === String(r.cancha))?.nombre || `Cancha ${r.cancha}`
+    const fechaFormateada = r.fecha ? r.fecha.split('-').reverse().join('/') : ''
+    const complejoNombre = config.nombre || nombreNegocio || 'el complejo'
+    const mensaje = `Hola ${r.nombre || ''}, te escribimos desde ${complejoNombre} por tu reserva en ${nombreCancha} para el día ${fechaFormateada} a las ${r.hora}hs.`
+
+    return {
+      tieneTelefono: true,
+      telefonoTexto: rawTel,
+      waUrl: `https://wa.me/${waPhone}?text=${encodeURIComponent(mensaje)}`,
+      telUrl: `tel:${rawTel.replace(/[^\d+]/g, '')}`
+    }
+  }
+
   // Cambiar estado de pago rápido desde la tabla o tarjetas
   const cambiarEstadoPago = async (id, nuevoEstado) => {
     const res = await fetch(`${API_URL}/api/admin/reservas/${id}`, {
@@ -694,6 +725,7 @@ export default function Dashboard() {
     const payload = {
       ...nuevaReserva,
       nombre: nuevaReserva.nombre.trim(),
+      telefono: (nuevaReserva.telefono || '').trim(),
       monto_pagado: nuevaReserva.monto_pagado !== undefined ? nuevaReserva.monto_pagado : montoCalculado,
       creado_por: autor
     }
@@ -781,6 +813,50 @@ export default function Dashboard() {
       alert('Error de conexión al guardar configuración')
     } finally {
       setSavingConfig(false)
+    }
+  }
+
+  // Guardar Seña Rápida directamente desde la tarjeta de métricas
+  const guardarSenaRapida = async (e) => {
+    if (e && e.preventDefault) e.preventDefault()
+    if (e && e.stopPropagation) e.stopPropagation()
+
+    const montoNum = Number(nuevaSenaValor)
+    if (isNaN(montoNum) || montoNum <= 0) {
+      alert('Por favor ingresá un monto de seña válido mayor a $0.')
+      return
+    }
+
+    setGuardandoSenaRapida(true)
+    setConfig(prev => ({ ...prev, monto_sena: montoNum }))
+    if (updateLocalConfig) {
+      updateLocalConfig({ monto_sena: montoNum })
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/api/admin/config`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ monto_sena: montoNum })
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        if (data.config) {
+          setConfig(prev => ({ ...prev, ...data.config }))
+          if (updateLocalConfig) updateLocalConfig(data.config)
+        }
+        if (refreshTenant) refreshTenant()
+        setEditandoSenaRapida(false)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(`Error al actualizar la seña: ${err.error || 'No se pudo guardar'}`)
+      }
+    } catch (err) {
+      console.error('Error guardando seña rápida:', err)
+      alert('Error de conexión al guardar la seña.')
+    } finally {
+      setGuardandoSenaRapida(false)
     }
   }
 
@@ -985,6 +1061,9 @@ export default function Dashboard() {
         const estadoTxt = r.estado_pago === 'pagado' ? '[PAGADO]' : r.estado_pago === 'señado' ? '[SEÑADO]' : '[SIN PAGO]'
         texto += `*${r.hora}hs* - ${nombreCancha}\n`
         texto += `  Jugador: *${r.nombre}*\n`
+        if (r.telefono) {
+          texto += `  Teléfono: ${r.telefono}\n`
+        }
         texto += `  Estado: ${estadoTxt}\n\n`
       })
     }
@@ -1016,6 +1095,7 @@ export default function Dashboard() {
 
         return {
           'Jugador': r.nombre || 'Sin nombre',
+          'Teléfono': r.telefono || 'Sin teléfono',
           'Cancha': canchaObj?.nombre || `Cancha ${r.cancha}`,
           'Fecha': r.fecha || '',
           'Hora': r.hora ? `${r.hora} hs` : '',
@@ -1031,7 +1111,8 @@ export default function Dashboard() {
 
       // Ancho de columnas óptimo
       worksheet['!cols'] = [
-        { wch: 26 }, // Jugador
+        { wch: 24 }, // Jugador
+        { wch: 18 }, // Teléfono
         { wch: 15 }, // Cancha
         { wch: 15 }, // Fecha
         { wch: 12 }, // Hora
@@ -1212,14 +1293,89 @@ export default function Dashboard() {
                 </p>
               </button>
 
-              <div className="bg-white border border-slate-200 shadow-sm rounded-xl sm:rounded-2xl p-3 sm:p-5 flex flex-col justify-between min-w-0">
+              <div
+                onClick={() => {
+                  if (isAdmin && !editandoSenaRapida) {
+                    setNuevaSenaValor(String(config.monto_sena || 100))
+                    setEditandoSenaRapida(true)
+                  }
+                }}
+                title={isAdmin && !editandoSenaRapida ? 'Tocá para editar el monto de la seña' : ''}
+                className={`bg-white border shadow-sm rounded-xl sm:rounded-2xl p-3 sm:p-5 flex flex-col justify-between min-w-0 transition-all ${
+                  editandoSenaRapida
+                    ? 'border-emerald-500 ring-2 ring-emerald-200'
+                    : isAdmin
+                      ? 'border-slate-200 hover:border-emerald-400 cursor-pointer group active:scale-[0.99]'
+                      : 'border-slate-200'
+                }`}
+              >
                 <div>
-                  <p className="text-[10px] sm:text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">Canchas / Seña</p>
-                  <p className="text-lg sm:text-2xl font-black text-emerald-600">${config.monto_sena || 100}</p>
+                  <div className="flex justify-between items-center gap-1 mb-1">
+                    <p className="text-[10px] sm:text-xs font-extrabold text-slate-400 uppercase tracking-wider truncate">
+                      Canchas / Seña
+                    </p>
+                    {isAdmin && !editandoSenaRapida && (
+                      <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 group-hover:bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-md transition-colors shrink-0">
+                        ✏️ Editar
+                      </span>
+                    )}
+                  </div>
+
+                  {editandoSenaRapida ? (
+                    <form
+                      onSubmit={guardarSenaRapida}
+                      onClick={e => e.stopPropagation()}
+                      className="mt-1 space-y-1.5"
+                    >
+                      <div className="relative flex items-center">
+                        <span className="absolute left-2.5 text-emerald-700 font-black text-sm">$</span>
+                        <input
+                          type="number"
+                          min="1"
+                          autoFocus
+                          value={nuevaSenaValor}
+                          onChange={e => setNuevaSenaValor(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Escape') {
+                              e.stopPropagation()
+                              setEditandoSenaRapida(false)
+                            }
+                          }}
+                          className="w-full pl-6 pr-2 py-1 text-sm sm:text-base font-black text-emerald-800 bg-emerald-50/70 border border-emerald-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="submit"
+                          disabled={guardandoSenaRapida}
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-1 px-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {guardandoSenaRapida ? '...' : '✓ Guardar'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation()
+                            setEditandoSenaRapida(false)
+                          }}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-bold py-1 px-2 rounded-lg transition-colors cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <p className="text-lg sm:text-2xl font-black text-emerald-600 group-hover:text-emerald-700 transition-colors flex items-center gap-1.5">
+                      ${config.monto_sena || 100}
+                    </p>
+                  )}
                 </div>
-                <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5 truncate">
-                  {canchas.filter(c => c.activa !== false).length}/{canchas.length} activas
-                </p>
+
+                {!editandoSenaRapida && (
+                  <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5 truncate">
+                    {canchas.filter(c => c.activa !== false).length}/{canchas.length} activas
+                  </p>
+                )}
               </div>
 
             </div>
@@ -1252,6 +1408,7 @@ export default function Dashboard() {
                       } else {
                         setNuevaReserva({
                           nombre: '',
+                          telefono: '',
                           cancha: canchas[0]?.id || '1',
                           fecha: hoy,
                           hora: '',
@@ -1309,30 +1466,55 @@ export default function Dashboard() {
                           </div>
                         ) : (
                           <div className="space-y-1.5">
-                            {turnosCanchaHoy.map(t => (
-                              <div
-                                key={t.id}
-                                className="bg-slate-950/80 p-2 rounded-xl border border-slate-800 flex justify-between items-center gap-1.5 hover:border-slate-700 transition-colors min-w-0"
-                              >
-                                <div className="min-w-0 flex items-center gap-1.5">
-                                  <span className="bg-blue-950 text-blue-300 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border border-blue-800 shrink-0">
-                                    {t.hora} hs
-                                  </span>
-                                  <p className="font-bold text-xs text-white truncate max-w-[100px] sm:max-w-[140px]">
-                                    {t.nombre}
-                                  </p>
-                                </div>
+                            {turnosCanchaHoy.map(t => {
+                              const contacto = obtenerLinksContactoJugador(t)
+                              return (
+                                <div
+                                  key={t.id}
+                                  className="bg-slate-950/80 p-2 rounded-xl border border-slate-800 flex justify-between items-center gap-1.5 hover:border-slate-700 transition-colors min-w-0"
+                                >
+                                  <div className="min-w-0 flex flex-col gap-1 flex-1">
+                                    <div className="min-w-0 flex items-center gap-1.5">
+                                      <span className="bg-blue-950 text-blue-300 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border border-blue-800 shrink-0">
+                                        {t.hora} hs
+                                      </span>
+                                      <p className="font-bold text-xs text-white truncate max-w-[110px] sm:max-w-[140px]">
+                                        {t.nombre}
+                                      </p>
+                                    </div>
+                                    {contacto.tieneTelefono && (
+                                      <div className="flex items-center gap-1.5 pl-0.5">
+                                        <a
+                                          href={contacto.waUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          title={`Escribir por WhatsApp a ${t.nombre} (${contacto.telefonoTexto})`}
+                                          className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-800 px-1.5 py-0.5 rounded-md transition-colors"
+                                        >
+                                          💬 WSP
+                                        </a>
+                                        <a
+                                          href={contacto.telUrl}
+                                          title={`Llamar a ${t.nombre} (${contacto.telefonoTexto})`}
+                                          className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-300 bg-blue-950/80 hover:bg-blue-900 border border-blue-800 px-1.5 py-0.5 rounded-md transition-colors"
+                                        >
+                                          📞 {contacto.telefonoTexto}
+                                        </a>
+                                      </div>
+                                    )}
+                                  </div>
 
-                                <div className="shrink-0">
-                                  <EstadoPagoBadge
-                                    value={t.estado_pago || (t.pagado ? 'pagado' : 'sin_pago')}
-                                    onChange={nuevoEstado => cambiarEstadoPago(t.id, nuevoEstado)}
-                                    isSmall={true}
-                                    isDark={true}
-                                  />
+                                  <div className="shrink-0">
+                                    <EstadoPagoBadge
+                                      value={t.estado_pago || (t.pagado ? 'pagado' : 'sin_pago')}
+                                      onChange={nuevoEstado => cambiarEstadoPago(t.id, nuevoEstado)}
+                                      isSmall={true}
+                                      isDark={true}
+                                    />
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         )}
                       </div>
@@ -1374,18 +1556,32 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                {/* 1. Nombre y Estado de Pago */}
+                {/* 1. Nombre, Teléfono y Estado de Pago */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                  <div className="lg:col-span-2">
+                  <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                       Nombre del Jugador <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
+                      placeholder="Ej: Juan Pérez"
                       className="w-full border border-slate-300 px-4 py-2.5 rounded-xl text-sm font-medium focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none transition-all"
                       value={nuevaReserva.nombre}
                       onChange={e => setNuevaReserva({ ...nuevaReserva, nombre: e.target.value })}
                       autoFocus
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Teléfono / WhatsApp
+                    </label>
+                    <input
+                      type="tel"
+                      placeholder="Ej: 3804123456"
+                      className="w-full border border-slate-300 px-4 py-2.5 rounded-xl text-sm font-medium focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none transition-all"
+                      value={nuevaReserva.telefono || ''}
+                      onChange={e => setNuevaReserva({ ...nuevaReserva, telefono: e.target.value })}
                     />
                   </div>
 
@@ -1473,6 +1669,7 @@ export default function Dashboard() {
                   <div className="text-xs sm:text-sm text-slate-700 font-medium text-center sm:text-left">
                     <p className="font-bold text-slate-800 text-sm sm:text-base">
                       {nuevaReserva.nombre?.trim() ? nuevaReserva.nombre : 'Jugador por confirmar'}
+                      {nuevaReserva.telefono?.trim() ? ` (${nuevaReserva.telefono.trim()})` : ''}
                     </p>
                     <p className="text-slate-500">
                       Cancha: <span className="font-semibold text-slate-800">{canchas.find(c => String(c.id) === String(nuevaReserva.cancha))?.nombre || `Cancha ${nuevaReserva.cancha}`}</span>
@@ -1704,18 +1901,31 @@ export default function Dashboard() {
                 reservasPaginadas.map(r => {
                   const nombreCancha = canchas.find(c => String(c.id) === String(r.cancha))?.nombre || `Cancha ${r.cancha}`
                   const isEdicionActual = editando?.id === r.id
+                  const contacto = obtenerLinksContactoJugador(r)
 
                   if (isEdicionActual) {
                     return (
                       <div key={r.id} className="bg-white p-3.5 rounded-2xl border-2 border-blue-500 shadow-md space-y-2.5 animate-fade-in w-full">
                         <p className="text-xs font-bold text-blue-600 uppercase">Editando Reserva</p>
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Nombre</label>
-                          <input
-                            className="w-full border border-slate-300 p-2 rounded-xl text-xs font-medium"
-                            value={editando.nombre}
-                            onChange={e => setEditando({ ...editando, nombre: e.target.value })}
-                          />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Nombre</label>
+                            <input
+                              className="w-full border border-slate-300 p-2 rounded-xl text-xs font-medium"
+                              value={editando.nombre}
+                              onChange={e => setEditando({ ...editando, nombre: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Teléfono / WhatsApp</label>
+                            <input
+                              type="tel"
+                              placeholder="Ej: 3804123456"
+                              className="w-full border border-slate-300 p-2 rounded-xl text-xs font-medium"
+                              value={editando.telefono || ''}
+                              onChange={e => setEditando({ ...editando, telefono: e.target.value })}
+                            />
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
@@ -1823,6 +2033,41 @@ export default function Dashboard() {
                         </span>
                       </div>
 
+                      {contacto.tieneTelefono ? (
+                        <div className="flex items-center justify-between gap-2 bg-emerald-50/60 border border-emerald-100 rounded-xl px-2.5 py-1.5">
+                          <span className="text-xs font-bold text-slate-700 truncate">
+                            📱 {contacto.telefonoTexto}
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <a
+                              href={contacto.waUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-[11px] font-bold shadow-xs transition-colors"
+                            >
+                              💬 WhatsApp
+                            </a>
+                            <a
+                              href={contacto.telUrl}
+                              className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded-lg text-[11px] font-bold shadow-xs transition-colors"
+                            >
+                              📞 Llamar
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                          <span>Sin teléfono registrado</span>
+                          <button
+                            type="button"
+                            onClick={() => setEditando(r)}
+                            className="text-blue-600 font-semibold hover:underline"
+                          >
+                            + Agregar número
+                          </button>
+                        </div>
+                      )}
+
                       <div className="flex justify-end gap-2 pt-1 border-t border-slate-50">
                         <button
                           onClick={() => setEditando(r)}
@@ -1852,6 +2097,7 @@ export default function Dashboard() {
                   <thead className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-100">
                     <tr>
                       <th className="px-6 py-4">Jugador</th>
+                      <th className="px-6 py-4">Teléfono / Contacto</th>
                       <th className="px-6 py-4 text-center">Cancha</th>
                       <th className="px-6 py-4">Turno (Fecha y Hora)</th>
                       <th className="px-6 py-4 text-center">Estado de Pago</th>
@@ -1862,13 +2108,13 @@ export default function Dashboard() {
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {loading ? (
                       <tr>
-                        <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
+                        <td colSpan="7" className="px-6 py-12 text-center text-slate-400">
                           Cargando reservas...
                         </td>
                       </tr>
                     ) : reservasPaginadas.length === 0 ? (
                       <tr>
-                        <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
+                        <td colSpan="7" className="px-6 py-12 text-center text-slate-400">
                           <p>No se encontraron reservas con los filtros aplicados ({filterPeriodo.toUpperCase()}).</p>
                           {searchTerm.trim() && filterPeriodo !== 'todos' && (
                             <button
@@ -1882,7 +2128,9 @@ export default function Dashboard() {
                         </td>
                       </tr>
                     ) : (
-                      reservasPaginadas.map(r => (
+                      reservasPaginadas.map(r => {
+                        const contacto = obtenerLinksContactoJugador(r)
+                        return (
                         <tr key={r.id} className="hover:bg-slate-50 transition-colors">
                           
                           {/* NOMBRE */}
@@ -1902,6 +2150,50 @@ export default function Dashboard() {
                                   </span>
                                 )}
                               </div>
+                            )}
+                          </td>
+
+                          {/* TELÉFONO / CONTACTO */}
+                          <td className="px-6 py-4">
+                            {editando?.id === r.id ? (
+                              <input
+                                type="tel"
+                                placeholder="Ej: 3804123456"
+                                className="w-full border border-slate-300 p-2 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                value={editando.telefono || ''}
+                                onChange={e => setEditando({ ...editando, telefono: e.target.value })}
+                              />
+                            ) : contacto.tieneTelefono ? (
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-semibold text-xs text-slate-700">
+                                  {contacto.telefonoTexto}
+                                </span>
+                                <a
+                                  href={contacto.waUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title={`Escribir por WhatsApp a ${r.nombre}`}
+                                  className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors"
+                                >
+                                  💬 WhatsApp
+                                </a>
+                                <a
+                                  href={contacto.telUrl}
+                                  title={`Llamar a ${r.nombre}`}
+                                  className="inline-flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors"
+                                >
+                                  📞 Llamar
+                                </a>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setEditando(r)}
+                                className="text-xs text-slate-400 hover:text-blue-600 font-medium transition-colors cursor-pointer"
+                                title="Agregar teléfono de contacto"
+                              >
+                                + Agregar teléfono
+                              </button>
                             )}
                           </td>
 
@@ -2039,7 +2331,8 @@ export default function Dashboard() {
                           </td>
 
                         </tr>
-                      ))
+                        )
+                      })
                     )}
                   </tbody>
                 </table>

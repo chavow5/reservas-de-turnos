@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS public.usuarios (
 CREATE TABLE IF NOT EXISTS public.reservas (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   nombre text NOT NULL,
+  telefono text,
   fecha text NOT NULL,
   hora text NOT NULL,
   cancha text DEFAULT '1',
